@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -12,11 +13,14 @@ internal sealed class MainWindow : Form
     private readonly WebView2 _web = new() { Dock = DockStyle.Fill };
     private readonly SensorService _sensors = new();
     private readonly OverlayWindow _overlay = new();
+    private readonly PerformanceService _performance = new();
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 2000 };
     private bool _busy;
     private bool _ready;
     private bool _closing;
     private bool _processes;
+    private bool _overlayPage;
+    private int? _selectedProcess;
     private bool _paused;
     private bool _opened;
     private OverlaySettings _overlaySettings = new();
@@ -32,7 +36,7 @@ internal sealed class MainWindow : Form
         Shown += async (_, _) => await InitializeAsync();
         _timer.Tick += async (_, _) => await PublishAsync();
         FormClosing += (_, _) => { _closing = true; _timer.Stop(); _overlay.Close(); };
-        FormClosed += (_, _) => { _timer.Dispose(); if (!_busy) _sensors.Dispose(); UnregisterHotKey(Handle, 1); };
+        FormClosed += (_, _) => { _timer.Dispose(); _performance.Dispose(); if (!_busy) _sensors.Dispose(); UnregisterHotKey(Handle, 1); };
     }
 
     private async Task InitializeAsync()
@@ -83,15 +87,29 @@ internal sealed class MainWindow : Form
                     if (root.TryGetProperty("settings", out var settings)) ApplyPreferences(settings);
                     break;
                 case "page":
-                    _processes = root.TryGetProperty("page", out var page) && page.GetString() == "processes";
+                    var pageName = root.TryGetProperty("page", out var page) ? page.GetString() : null;
+                    _processes = pageName is "processes" or "overlay";
+                    _overlayPage = pageName == "overlay";
+                    ConfigureCapture();
                     if (_processes) await PublishAsync();
                     break;
-                case "pause": _paused = root.TryGetProperty("paused", out var paused) && paused.GetBoolean(); break;
+                case "pause": _paused = root.TryGetProperty("paused", out var paused) && paused.GetBoolean(); ConfigureCapture(); break;
+                case "select-process":
+                    _selectedProcess = root.TryGetProperty("id", out var processId) && processId.TryGetInt32(out var pid) && pid > 0 ? pid : null;
+                    _sensors.TargetProcessId = _selectedProcess;
+                    ConfigureCapture();
+                    await PublishAsync();
+                    break;
                 case "select-gpu":
                     _sensors.SelectedGpuId = root.TryGetProperty("id", out var id) ? id.GetString() : null;
                     await PublishAsync();
                     break;
                 case "reset-overlay-position": _overlay.ResetPosition(); break;
+                case "install-driver":
+                    await InstallDriverAsync();
+                    break;
+                case "restart-admin": Restart(true); break;
+                case "restart-app": Restart(false); break;
             }
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException) { /* Ignore malformed bridge messages. */ }
@@ -111,10 +129,15 @@ internal sealed class MainWindow : Form
             _overlaySettings.Fahrenheit = settings.TryGetProperty("fahrenheit", out var unit) && unit.GetBoolean();
             _overlaySettings.Opacity = Math.Clamp(_overlaySettings.Opacity, 35, 100);
             _overlaySettings.Scale = Math.Clamp(_overlaySettings.Scale, 75, 140);
-            _overlaySettings.Metrics = (_overlaySettings.Metrics ?? []).Where(m => m is "cpu" or "gpu" or "ram").Distinct().ToArray();
+            _overlaySettings.Metrics = (_overlaySettings.Metrics ?? []).Where(OverlayWindow.IsMetric).Distinct().Take(24).ToArray();
+            if (_overlaySettings.Layout is not ("stacked" or "inline")) _overlaySettings.Layout = "stacked";
+            if (!IsColor(_overlaySettings.Color)) _overlaySettings.Color = "#90e6b5";
+            if (!IsColor(_overlaySettings.Background)) _overlaySettings.Background = "#0f1513";
+            _overlaySettings.PingHost = (_overlaySettings.PingHost ?? "").Trim();
             _overlay.Configure(_overlaySettings);
             if (_overlaySettings.Visible && !_overlay.Visible) _overlay.Show();
             else if (!_overlaySettings.Visible && _overlay.Visible) _overlay.Hide();
+            ConfigureCapture();
         }
     }
 
@@ -124,7 +147,13 @@ internal sealed class MainWindow : Form
         _busy = true;
         try
         {
-            var snapshot = await Task.Run(() => _sensors.Read(_processes));
+            var snapshot = await Task.Run(() =>
+            {
+                var sample = _sensors.Read(_processes);
+                var performance = _performance.Read(_sensors.TargetProcess, _overlaySettings.PingHost,
+                    (_overlaySettings.Visible || _overlayPage) && _overlaySettings.Metrics.Contains("ping"));
+                return sample with { Performance = performance };
+            });
             if (_closing) return;
             _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(snapshot, JsonOptions));
             _overlay.SetSnapshot(snapshot);
@@ -136,6 +165,35 @@ internal sealed class MainWindow : Form
         finally { _busy = false; if (_closing) _sensors.Dispose(); }
     }
 
+    private void ConfigureCapture() => _performance.Configure(_selectedProcess, !_paused && (_overlaySettings.Visible || _overlayPage)
+        && _overlaySettings.Metrics.Any(m => m is "fps" or "frametime"));
+    private static bool IsColor(string? color) => color is { Length: 7 } && color[0] == '#' && color.Skip(1).All(Uri.IsHexDigit);
+    private void ActionResult(string message) => _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "action-result", message }, JsonOptions));
+    private async Task InstallDriverAsync()
+    {
+        try
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "Tools", "PawnIO_setup.exe");
+            if (!File.Exists(path)) { ActionResult("The driver installer is missing. Download the complete Geronimo installer."); return; }
+            using var installer = Process.Start(new ProcessStartInfo(path) { UseShellExecute = true, Verb = "runas" });
+            if (installer != null) await installer.WaitForExitAsync();
+            if (!_closing) ActionResult("Driver setup closed. Restart Geronimo to detect the driver; restart Windows if setup requested it.");
+        }
+        catch (System.ComponentModel.Win32Exception) { if (!_closing) ActionResult("Driver setup was cancelled or could not start."); }
+    }
+    private void Restart(bool elevate)
+    {
+        try
+        {
+            var info = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = true, WorkingDirectory = AppContext.BaseDirectory };
+            info.ArgumentList.Add("--restart-from"); info.ArgumentList.Add(Environment.ProcessId.ToString());
+            if (elevate) info.Verb = "runas";
+            using var restarted = Process.Start(info);
+            if (restarted != null) Close();
+        }
+        catch (System.ComponentModel.Win32Exception) { ActionResult("Restart was cancelled or could not start. The current session is still running."); }
+    }
+
     protected override void WndProc(ref Message message)
     {
         if (message.Msg == 0x0312 && message.WParam.ToInt32() == 1)
@@ -143,6 +201,7 @@ internal sealed class MainWindow : Form
             _overlaySettings.Visible = !_overlaySettings.Visible;
             _overlay.Configure(_overlaySettings);
             if (_overlaySettings.Visible) _overlay.Show(); else _overlay.Hide();
+            ConfigureCapture();
             if (_ready) _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "overlay-state", visible = _overlaySettings.Visible }, JsonOptions));
         }
         base.WndProc(ref message);

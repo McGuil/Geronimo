@@ -7,7 +7,6 @@ internal sealed class OverlayWindow : Form
 {
     private OverlaySettings _settings = new();
     private Snapshot? _snapshot;
-    private static readonly Dictionary<string, Color> Colors = new() { ["cpu"] = Color.FromArgb(177, 237, 189), ["gpu"] = Color.FromArgb(183, 161, 236), ["ram"] = Color.FromArgb(131, 185, 235) };
     private readonly string _positionFile = Path.Combine(MainWindow.DataFolder, "overlay-position.json");
     protected override bool ShowWithoutActivation => true;
     protected override CreateParams CreateParams
@@ -41,7 +40,10 @@ internal sealed class OverlayWindow : Form
         var styleChanged = _settings.ClickThrough != settings.ClickThrough;
         _settings = settings;
         var scale = settings.Scale / 100f;
-        Size = settings.Layout == "inline" ? new Size((int)(Math.Max(1, settings.Metrics.Length) * 112 * scale), (int)(95 * scale)) : new Size((int)(250 * scale), (int)((45 + Math.Max(1, settings.Metrics.Length) * 36) * scale));
+        var columns = settings.Layout == "inline" ? Math.Min(4, Math.Max(1, settings.Metrics.Length)) : 1;
+        var rows = (int)Math.Ceiling(Math.Max(1, settings.Metrics.Length) / (double)columns);
+        Size = settings.Layout == "inline" ? new Size((int)(columns * 170 * scale), (int)((34 + rows * 58) * scale)) : new Size((int)(290 * scale), (int)((36 + rows * 36) * scale));
+        BackColor = ColorTranslator.FromHtml(settings.Background);
         Opacity = settings.Opacity / 100d;
         Location = Constrain(Location);
         if (styleChanged && IsHandleCreated)
@@ -68,22 +70,56 @@ internal sealed class OverlayWindow : Form
         using var muted = new SolidBrush(Color.FromArgb(155, 178, 164));
         using var text = new SolidBrush(Color.FromArgb(231, 242, 235));
         g.DrawString("GERONIMO  ·  LIVE", titleFont, muted, 13, 10);
+        var columns = _settings.Layout == "inline" ? Math.Min(4, Math.Max(1, _settings.Metrics.Length)) : 1;
         for (var i = 0; i < _settings.Metrics.Length; i++)
         {
             var metric = _settings.Metrics[i];
-            var sample = _snapshot?.Readings.GetValueOrDefault(metric);
-            var x = _settings.Layout == "inline" ? 13 + i * 112 : 13;
-            var y = _settings.Layout == "inline" ? 35 : 34 + i * 36;
-            using var accent = new SolidBrush(Colors[metric]);
-            g.DrawString(metric.ToUpperInvariant(), labelFont, accent, x, y);
-            var usage = sample?.Usage is float load ? $"{load:F0}%" : "—";
-            var temperature = sample?.Temperature is float t ? $"{(_settings.Fahrenheit ? t * 9 / 5 + 32 : t):F0}°{(_settings.Fahrenheit ? 'F' : 'C')}" : "N/A";
-            g.DrawString(usage, valueFont, text, x + (_settings.Layout == "inline" ? 0 : 52), y + (_settings.Layout == "inline" ? 20 : -2));
-            g.DrawString(temperature, valueFont, muted, x + (_settings.Layout == "inline" ? 44 : 145), y + (_settings.Layout == "inline" ? 20 : -2));
+            var x = 13 + i % columns * 170;
+            var y = _settings.Layout == "inline" ? 33 + i / columns * 58 : 32 + i * 36;
+            using var accent = new SolidBrush(ColorTranslator.FromHtml(_settings.Color));
+            var (label, value) = FormatMetric(metric);
+            using var format = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap };
+            g.DrawString(label, labelFont, accent, new RectangleF(x, y, _settings.Layout == "inline" ? 148 : 112, 18), format);
+            g.DrawString(value, valueFont, text, new RectangleF(x + (_settings.Layout == "inline" ? 0 : 116), y + (_settings.Layout == "inline" ? 19 : -2), _settings.Layout == "inline" ? 148 : 145, 23), format);
         }
         using var border = new Pen(Color.FromArgb(66, 90, 75));
         g.ResetTransform();
         g.DrawRectangle(border, 0, 0, Width - 1, Height - 1);
+    }
+
+    internal static bool IsMetric(string metric) => metric is "cpu" or "gpu" or "ram" or "cpu-usage" or "cpu-temp" or "cpu-clock" or "cpu-power"
+        or "gpu-usage" or "gpu-temp" or "gpu-clock" or "gpu-power" or "ram-usage" or "ram-temp" or "ram-used"
+        or "fps" or "frametime" or "process" or "process-cpu" or "process-ram" or "ping" || metric.StartsWith("sensor:", StringComparison.Ordinal);
+
+    private (string Label, string Value) FormatMetric(string metric)
+    {
+        string Number(double? n, string unit, string digits = "F0") => n.HasValue ? $"{n.Value.ToString(digits)}{unit}" : "N/A";
+        string Temp(float? t) => t.HasValue ? Number(_settings.Fahrenheit ? t * 9 / 5 + 32 : t, _settings.Fahrenheit ? "°F" : "°C") : "N/A";
+        var perf = _snapshot?.Performance;
+        if (metric.StartsWith("sensor:", StringComparison.Ordinal))
+        {
+            var sensor = _snapshot?.Sensors.FirstOrDefault(s => s.Id == metric[7..]);
+            return (sensor?.Name ?? "Sensor", Temp(sensor?.Temperature));
+        }
+        if (metric is "cpu" or "gpu" or "ram")
+        { var r = _snapshot?.Readings.GetValueOrDefault(metric); return (metric.ToUpperInvariant(), $"{Number(r?.Usage, "%")}  {Temp(r?.Temperature)}"); }
+        var key = metric.Split('-')[0];
+        var sample = _snapshot?.Readings.GetValueOrDefault(key);
+        return metric switch
+        {
+            "fps" => ("FPS", Number(perf?.Fps, "")),
+            "frametime" => ("FRAME TIME", Number(perf?.FrameTime, " ms", "F1")),
+            "ping" => ("PING", Number(perf?.Ping, " ms")),
+            "process" => ("PROCESS", perf?.ProcessName ?? "Select a process"),
+            "process-cpu" => ("PROCESS CPU", Number(perf?.ProcessCpu, "%", "F1")),
+            "process-ram" => ("PROCESS RAM", Number(perf?.ProcessRam, " MB")),
+            "ram-used" => ("RAM USED", Number(_snapshot?.UsedMemoryGb, " GB", "F1")),
+            _ when metric.EndsWith("-usage") => ($"{key.ToUpperInvariant()} USAGE", Number(sample?.Usage, "%")),
+            _ when metric.EndsWith("-temp") => ($"{key.ToUpperInvariant()} TEMP", Temp(sample?.Temperature)),
+            _ when metric.EndsWith("-clock") => ($"{key.ToUpperInvariant()} CLOCK", Number(sample?.Clock, " GHz", "F2")),
+            _ when metric.EndsWith("-power") => ($"{key.ToUpperInvariant()} POWER", Number(sample?.Power, " W")),
+            _ => (metric.ToUpperInvariant(), "N/A")
+        };
     }
 
     private Point Constrain(Point position)

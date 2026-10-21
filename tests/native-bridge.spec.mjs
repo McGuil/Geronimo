@@ -88,3 +88,54 @@ test('native processes escape names, preserve missing readings and keep search f
   await expect(search).toBeFocused();
   await expect(page.locator('#process-rows')).toContainText('—');
 });
+
+test('Ryzen zero temperature is unavailable and driver setup is actionable', async ({ page }) => {
+  await mockHost(page);
+  const data = fixture();
+  data.hardware.cpu = { name: 'AMD Ryzen 7 5700X', short: 'AMD Ryzen 7 5700X', detail: '16 logical processors' };
+  data.readings.cpu.temperature = 0;
+  data.readings.cpu.temperatureLabel = 'Core (Tctl/Tdie)';
+  data.diagnostics = { driverInstalled: false, driverVersion: null, elevated: false,
+    cpu: 'CPU temperature needs PawnIO 2.0 or later.', ram: 'Install PawnIO before checking RAM sensor support.' };
+  await page.evaluate(data => window.__deliverSnapshot(data), data);
+  await expect(page.locator('[data-widget="cpu"] .temperature-pill')).toContainText('Unavailable');
+  await page.getByRole('button', { name: 'Install sensor driver' }).click();
+  await page.getByRole('button', { name: 'Restart as administrator' }).click();
+  expect(await page.evaluate(() => window.__nativeMessages.some(m => m.type === 'install-driver'))).toBe(true);
+  expect(await page.evaluate(() => window.__nativeMessages.some(m => m.type === 'restart-admin'))).toBe(true);
+});
+
+test('overlay selects process, uses measured performance, reorders fields and keeps individual DIMM sensors', async ({ page }) => {
+  await mockHost(page);
+  const data = fixture();
+  data.processes = [{ id: 456, name: 'Example game', description: 'PID 456', icon: 'windows', cpu: 12, ram: 1000, gpu: null }];
+  data.sensors.push({ id: '/memory/dimm/0/temperature/0', name: 'DIMM #0', detail: 'G.Skill F4-3600C18-8GTZR', icon: 'ram', temperature: 42.8, min: 40, max: 44, metric: 'ram' });
+  data.sensors.push({ id: '/memory/dimm/1/temperature/0', name: 'DIMM #1', detail: 'G.Skill F4-3600C18-8GTZR', icon: 'ram', temperature: 42.3, min: 40, max: 43, metric: 'ram' });
+  data.performance = { processId: null, processName: null, processCpu: null, processRam: null, fps: null, frameTime: null, ping: null, pingHost: '1.1.1.1', captureStatus: 'Choose a process.', pingStatus: 'Ping disabled.' };
+  await page.evaluate(data => window.__deliverSnapshot(data), data);
+  await page.getByRole('link', { name: 'Overlay studio' }).click();
+  await page.getByRole('checkbox', { name: 'FPS', exact: true }).check();
+  await page.getByRole('checkbox', { name: 'Frame time', exact: true }).check();
+  await page.getByRole('checkbox', { name: 'Network ping', exact: true }).check();
+  await expect(page.locator('[data-live="overlay:fps"]')).toHaveText('Unavailable');
+  await page.getByLabel('Game or process').selectOption('456');
+  expect(await page.evaluate(() => window.__nativeMessages.some(m => m.type === 'select-process' && m.id === 456))).toBe(true);
+  data.performance = { processId: 456, processName: 'Example game', processCpu: 12, processRam: 1000, fps: 144, frameTime: 6.94, ping: 23, pingHost: '1.1.1.1', captureStatus: 'Live PresentMon present rate.', pingStatus: 'ICMP round-trip time.' };
+  await page.evaluate(data => window.__deliverSnapshot(data), data);
+  await expect(page.locator('[data-live="overlay:fps"]')).toHaveText('144');
+  await expect(page.locator('[data-live="overlay:frametime"]')).toHaveText('6.9 ms');
+  await expect(page.locator('[data-live="overlay:ping"]')).toHaveText('23 ms');
+  await page.getByLabel('Ping host').fill('example.com');
+  await page.getByLabel('Ping host').press('Tab');
+  expect(await page.evaluate(() => window.__nativeMessages.some(m => m.type === 'preferences' && m.settings.overlay.pingHost === 'example.com'))).toBe(true);
+  await page.getByRole('button', { name: 'Move FPS up', exact: true }).click();
+  await page.getByText('Individual temperature sensors', { exact: true }).click();
+  await page.getByRole('checkbox', { name: 'DIMM #0 · G.Skill F4-3600C18-8GTZR', exact: true }).check();
+  await page.getByRole('checkbox', { name: 'DIMM #1 · G.Skill F4-3600C18-8GTZR', exact: true }).check();
+  await expect(page.locator('#studio-overlay .overlay-metric')).toHaveCount(8);
+  await expect(page.locator('[data-live="overlay:sensor:/memory/dimm/0/temperature/0"]')).toHaveText('43°C');
+  await page.reload();
+  const preferences = await page.evaluate(() => JSON.parse(localStorage.getItem('geronimo.preferences.v1')));
+  expect(preferences.overlay.metrics.slice(0, 4)).toEqual(['cpu', 'gpu', 'fps', 'ram']);
+  expect(preferences.overlay.metrics).toContain('sensor:/memory/dimm/1/temperature/0');
+});

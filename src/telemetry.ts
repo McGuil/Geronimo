@@ -9,7 +9,9 @@ export interface Reading { usage: number | null; temperature: number | null; clo
 let tick = 450;
 export const series: Record<Metric, (number | null)[]> = { cpu: [], gpu: [], ram: [] };
 export const timestamps: number[] = [];
-export const runtime = { native: false, connected: false, totalMemoryGb: 32, usedMemoryGb: 0, os: 'Windows 11', statusMessage: '', devices: [] as { id: string; name: string; kind: string }[], selectedGpu: '' };
+export interface SensorDiagnostics { driverInstalled: boolean; driverVersion: string | null; elevated: boolean; cpu: string; ram: string }
+export interface PerformanceInfo { processId: number | null; processName: string | null; processCpu: number | null; processRam: number | null; fps: number | null; frameTime: number | null; ping: number | null; pingHost: string; captureStatus: string; pingStatus: string }
+export const runtime = { native: false, connected: false, totalMemoryGb: 32, usedMemoryGb: 0, os: 'Windows 11', statusMessage: '', devices: [] as { id: string; name: string; kind: string }[], selectedGpu: '', selectedProcess: null as number | null, diagnostics: null as SensorDiagnostics | null, performance: null as PerformanceInfo | null };
 let nativeSensors: Sensor[] = [];
 function sample(t: number, kind: Metric): number {
   if (kind === 'cpu') return Math.round(26 + Math.sin(t * .14) * 8 + Math.sin(t * .71) * 5 + Math.cos(t * .31) * 3);
@@ -35,7 +37,7 @@ export function advance(): void {
   for (const key of ['cpu', 'gpu', 'ram'] as const) { series[key].push(sample(tick, key)); series[key].shift(); }
   sync();
 }
-export interface Sensor { name: string; detail: string; icon: string; temperature: number | null; min: number | null; max: number | null; metric?: Metric }
+export interface Sensor { id?: string; name: string; detail: string; icon: string; temperature: number | null; min: number | null; max: number | null; metric?: Metric }
 export function sensors(): Sensor[] {
   if (runtime.native) return nativeSensors;
   return [
@@ -63,7 +65,7 @@ export function statistics(metric: Metric): { average: string; peak: string } {
   const values = series[metric].filter((v): v is number => v !== null);
   return { average: values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length).toString() : '—', peak: values.length ? Math.round(Math.max(...values)).toString() : '—' };
 }
-export interface ProcessInfo { name: string; description: string; icon: string; cpu: number | null; ram: number; gpu: number | null }
+export interface ProcessInfo { id?: number; name: string; description: string; icon: string; cpu: number | null; ram: number; gpu: number | null }
 export let processes: ProcessInfo[] = [
   { name: 'Google Chrome', description: 'Browser · 12 processes', icon: 'chrome', cpu: 8.4, ram: 1842, gpu: 3.2 },
   { name: 'Visual Studio Code', description: 'Code editor · 8 processes', icon: 'code', cpu: 5.2, ram: 1126, gpu: 1.1 },
@@ -81,6 +83,8 @@ export interface NativeSnapshot {
   devices: { id: string; name: string; kind: string }[];
   totalMemoryGb: number; usedMemoryGb: number; os: string; statusMessage: string;
   processes: ProcessInfo[] | null;
+  diagnostics?: SensorDiagnostics;
+  performance?: PerformanceInfo;
 }
 export function initializeNative(): void {
   runtime.native = true;
@@ -94,15 +98,17 @@ export function initializeNative(): void {
   runtime.totalMemoryGb = 0;
 }
 export function acceptSnapshot(snapshot: NativeSnapshot): boolean {
-  const signature = () => JSON.stringify([Object.values(hardware).map(h => [h.name, h.short]), Object.values(readings).map(r => r.temperatureLabel), nativeSensors.map(s => [s.name, s.detail]), runtime.devices]);
+  const signature = () => JSON.stringify([Object.values(hardware).map(h => [h.name, h.short]), Object.values(readings).map(r => r.temperatureLabel), nativeSensors.map(s => [s.id, s.name, s.detail]), runtime.devices, runtime.statusMessage, runtime.diagnostics]);
   const before = signature();
   runtime.connected = true;
   runtime.totalMemoryGb = snapshot.totalMemoryGb; runtime.usedMemoryGb = snapshot.usedMemoryGb;
   runtime.os = snapshot.os; runtime.devices = snapshot.devices; runtime.statusMessage = snapshot.statusMessage;
+  runtime.diagnostics = snapshot.diagnostics ?? null; runtime.performance = snapshot.performance ?? null;
   if (!snapshot.devices.some(d => d.kind === 'gpu' && d.id === runtime.selectedGpu)) runtime.selectedGpu = snapshot.devices.find(d => d.kind === 'gpu')?.id ?? '';
   for (const m of ['cpu', 'gpu', 'ram'] as Metric[]) {
     Object.assign(hardware[m], snapshot.hardware[m]);
-    readings[m] = snapshot.readings[m];
+    const reading = snapshot.readings[m];
+    readings[m] = { ...reading, temperature: reading.temperature !== null && Number.isFinite(reading.temperature) && reading.temperature > 0 && reading.temperature <= 150 ? reading.temperature : null };
     series[m].push(snapshot.readings[m].usage); if (series[m].length > 1800) series[m].shift();
   }
   timestamps.push(snapshot.timestamp); if (timestamps.length > 1800) timestamps.shift();

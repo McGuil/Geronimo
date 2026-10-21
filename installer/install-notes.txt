@@ -1,0 +1,15 @@
+Geronimo for Windows 10/11 x64
+
+This installer includes the Geronimo dashboard, native overlay, .NET runtime, PresentMon frame collector, and the official unmodified PawnIO sensor driver installer.
+
+Keep the PawnIO hardware-access task selected for CPU, RAM and motherboard temperatures. Its own setup window may ask you to complete installation or restart Windows. Do not disable Windows security features to enable a driver. Existing PawnIO 2.0+ installations are preserved.
+
+The Microsoft WebView2 bootstrapper runs when the runtime is missing; it needs an internet connection to obtain the runtime from Microsoft.
+
+In Geronimo, use Restart as administrator if hardware sensors or frame capture are inaccessible. The app otherwise launches with normal user access.
+
+Overlay Studio lets you choose a running process, select and reorder readings, customize colors, layout, opacity and size, and select individual DIMM/motherboard temperature sensors. FPS/frame time require the chosen process to present frames through a supported graphics path. Ping is ICMP round-trip time to your chosen host, not game-server or input latency.
+
+Hardware support depends on the provider, board and firmware. Missing readings remain unavailable. Geronimo cannot create a temperature sensor that the hardware does not expose. It never substitutes sensor limits, simulated data or an estimate for a measured temperature.
+
+Uninstall removes Geronimo. Shared PawnIO and WebView2 installations remain available for other applications and can be managed separately in Windows Settings.

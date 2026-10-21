@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../desktop/Geronimo.Desktop/TemperaturePolicy.cs" Link="TemperaturePolicy.cs" />
+    <Compile Include="../../desktop/Geronimo.Desktop/FrameStatistics.cs" Link="FrameStatistics.cs" />
+  </ItemGroup>
+</Project>

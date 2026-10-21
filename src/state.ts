@@ -1,3 +1,4 @@
+import { isOverlayMetric, type OverlayMetric } from './overlay-options';
 export type Metric = 'cpu' | 'gpu' | 'ram';
 export type Theme = 'graphite' | 'midnight' | 'light';
 export type Page = 'overview' | 'hardware' | 'processes' | 'history' | 'overlay';
@@ -15,7 +16,10 @@ export interface Settings {
     opacity: number;
     scale: number;
     layout: 'stacked' | 'inline';
-    metrics: Metric[];
+    metrics: OverlayMetric[];
+    pingHost: string;
+    color: string;
+    background: string;
     position: { x: number; y: number } | null;
     clickThrough: boolean;
   };
@@ -25,7 +29,7 @@ export const defaults = (): Settings => ({
   theme: 'graphite', accent: 'mint', density: 'comfortable', refresh: 2000,
   fahrenheit: false, reducedMotion: false,
   order: ['cpu', 'gpu', 'ram'], hidden: [],
-  overlay: { visible: false, opacity: 90, scale: 100, layout: 'stacked', metrics: ['cpu', 'gpu', 'ram'], position: null, clickThrough: false },
+  overlay: { visible: false, opacity: 90, scale: 100, layout: 'stacked', metrics: ['cpu', 'gpu', 'ram'], position: null, clickThrough: false, pingHost: '1.1.1.1', color: '#90e6b5', background: '#0f1513' },
 });
 export function loadSettings(): Settings {
   const result = defaults();
@@ -46,7 +50,9 @@ export function loadSettings(): Settings {
       if (Number.isFinite(overlay.opacity)) result.overlay.opacity = Math.max(35, Math.min(100, overlay.opacity));
       if (Number.isFinite(overlay.scale)) result.overlay.scale = Math.max(75, Math.min(140, overlay.scale));
       if (['stacked', 'inline'].includes(overlay.layout)) result.overlay.layout = overlay.layout;
-      if (Array.isArray(overlay.metrics)) result.overlay.metrics = ['cpu', 'gpu', 'ram'].filter(m => overlay.metrics.includes(m)) as Metric[];
+      if (Array.isArray(overlay.metrics)) result.overlay.metrics = [...new Set(overlay.metrics.filter(isOverlayMetric))].slice(0, 24) as OverlayMetric[];
+      if (typeof overlay.pingHost === 'string') result.overlay.pingHost = overlay.pingHost.slice(0, 253);
+      for (const key of ['color', 'background'] as const) if (typeof overlay[key] === 'string' && /^#[0-9a-f]{6}$/i.test(overlay[key])) result.overlay[key] = overlay[key];
       if (overlay.position && Number.isFinite(overlay.position.x) && Number.isFinite(overlay.position.y)) result.overlay.position = overlay.position;
     }
   } catch { /* An unavailable or corrupt local store must not prevent startup. */ }

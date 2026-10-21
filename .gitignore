@@ -7,3 +7,4 @@ artifacts/
 **/obj/
 *.local
 .DS_Store
+__pycache__/

@@ -3,6 +3,7 @@ import { icon } from './icons';
 import { defaults, loadSettings, persist, type Metric, type Page } from './state';
 import { advance, chartPath, hardware, processes, readings, sensors, series, timestamps, runtime, initializeNative, acceptSnapshot, windowedSeries, statistics, type NativeSnapshot } from './telemetry';
 import { nativeBridge, sendNative } from './bridge';
+import { overlayFields, type OverlayMetric } from './overlay-options';
 
 if (nativeBridge) initializeNative();
 
@@ -29,7 +30,7 @@ const temperature = (value: number | null) => value === null ? 'Unavailable' : `
 const usage = (metric: Metric) => readings[metric].usage === null ? '—' : Math.round(readings[metric].usage!);
 const ramUsed = () => runtime.native ? runtime.connected ? runtime.usedMemoryGb.toFixed(1) : '—' : (readings.ram.usage! * 32 / 100).toFixed(1);
 const action = (label: string, attrs = '', symbol = '') => `<button ${attrs.includes('class=') ? '' : 'class="button"'} ${attrs}>${symbol ? icon(symbol) : ''}${label}</button>`;
-const live = (key: string, value: string | number, className = '') => `<span data-live="${key}" class="${className}">${value}</span>`;
+const live = (key: string, value: string | number, className = '') => `<span data-live="${escape(key)}" class="${className}">${value}</span>`;
 
 function save(): void {
   if (!persist(settings)) toast('Preferences work for this session. Browser storage is unavailable.');
@@ -83,6 +84,7 @@ function overview(): string {
   const visible = settings.order.filter(m => !settings.hidden.includes(m));
   return `${title('System overview', 'A little clarity. A lot of control.', `<span class="status-pill"><span class="status-dot"></span> ${runtime.native ? runtime.connected ? 'Live session' : 'Connecting sensors' : 'Sample session'}</span>${action('Customize', 'data-customize="appearance"', 'sliders')}`)}
     <div class="system-strip"><span>${icon('monitor')}<strong>${runtime.native ? 'This PC' : 'Demo workstation'}</strong><span class="strip-divider"></span>${escape(runtime.os)}</span><span class="system-strip-note">${icon('cpu')} ${runtime.native ? `${runtime.devices.filter(d => d.kind === 'cpu').length} CPU <span>+</span> ${runtime.devices.filter(d => d.kind === 'gpu').length} GPU <span>·</span> ${runtime.totalMemoryGb.toFixed(1)} GB RAM` : 'AMD CPU <span>+</span> NVIDIA GPU <span>·</span> 32 GB RAM'}</span><span class="demo-label">${runtime.native ? 'AUTO DETECTED' : 'EXAMPLE HARDWARE'}</span></div>
+    ${sensorDiagnostics()}
     <div class="metric-grid" style="--columns:${Math.max(1, visible.length)}">${visible.length ? visible.map(metricCard).join('') : `<div class="panel empty-state">${icon('grid')}<h2>Your workspace, your way.</h2><p>Add a widget to start building your dashboard.</p>${action('Choose widgets', 'data-customize="widgets"', 'sliders')}</div>`}</div>
     <div class="dashboard-row">${performancePanel()}${thermalPanel()}</div>
     <div class="dashboard-row bottom-row"><section class="panel"><div class="panel-heading"><div><h2>More from your system</h2><p>Additional temperatures & sensor availability</p></div><button class="text-button" data-page="hardware">All sensors ${icon('arrow')}</button></div>${sensorTable()}</section><section class="panel overlay-teaser"><div class="panel-heading"><div><span class="eyebrow">STAY IN THE FLOW</span><h2>Small window.<br>Full picture.</h2></div><span class="heading-icon">${icon('overlay')}</span></div><p>Your favorite metrics, right where<br>you want them.</p><div class="overlay-illustration"><div class="illustration-grid"></div>${miniOverlay()}</div><button class="overlay-cta" data-page="overlay">Build your overlay ${icon('arrow')}</button></section></div>
@@ -95,6 +97,7 @@ function hardwarePage(): string {
   const h = hardware[activeHardware];
   return `${title('Know your hardware', 'Every component. Every available sensor.', `<span class="status-pill neutral">${runtime.native ? 'Automatically detected' : 'Example configuration'}</span>`)}
   <div class="info-banner">${icon('info')}<span>${runtime.native ? escape(runtime.statusMessage || 'Connecting to local hardware sensors…') : 'This is sample hardware. Open the Windows application for automatic Intel, AMD & NVIDIA detection.'}</span></div>
+  ${sensorDiagnostics()}
   <div class="hardware-tabs">${(['cpu', 'gpu', 'ram'] as Metric[]).map(m => `<button class="hardware-tab ${m === activeHardware ? 'selected' : ''}" data-hardware-tab="${m}">${icon(m)}<span>${m.toUpperCase()}<small>${escape(hardware[m].short)}</small></span>${icon('chevron')}</button>`).join('')}</div>
   ${runtime.native && activeHardware === 'gpu' && runtime.devices.filter(d => d.kind === 'gpu').length > 1 ? `<label class="gpu-selector">Graphics adapter<select id="gpu-device-select">${runtime.devices.filter(d => d.kind === 'gpu').map(d => `<option value="${escape(d.id)}" ${runtime.selectedGpu === d.id ? 'selected' : ''}>${escape(d.name)}</option>`).join('')}</select></label>` : ''}
   <section class="panel hardware-details"><div class="hardware-hero"><span class="large-component ${activeHardware}">${icon(activeHardware)}</span><div><span class="eyebrow">${h.category}</span><h2>${escape(h.name)}</h2><p>${escape(h.detail)}</p></div><div class="hardware-live"><strong>${live(`${activeHardware}-usage`, usage(activeHardware))}<small>%</small></strong><span>${runtime.native ? 'Live utilization' : 'Simulated utilization'}</span></div></div><div class="hardware-specs">${(runtime.native ? [['Provider', 'LibreHardwareMonitor'], ['Source', escape(runtime.os)], ['Access', 'Read only'], ['Temperature sensors', String(sensors().filter(s => s.metric === activeHardware && s.temperature !== null).length)]] : activeHardware === 'cpu' ? [['Architecture', 'Zen 4'], ['Cores / threads', '16 / 32'], ['Clock', '4.80 GHz'], ['Socket', 'AM5']] : activeHardware === 'gpu' ? [['Architecture', 'Ada Lovelace'], ['Memory', '16 GB GDDR6X'], ['Clock', '2.50 GHz'], ['Interface', 'PCIe 4.0 x16']] : [['Capacity', '32 GB'], ['Configuration', '2 × 16 GB'], ['Data rate', '6000 MT/s'], ['Channels', runtime.native ? 'Read only' : 'Dual channel']]).map(([k, v]) => `<div><small>${k}</small><strong>${v}</strong></div>`).join('')}</div></section>
@@ -117,16 +120,43 @@ function overlayControls(): string {
   return `<div class="control-block"><div class="control-label"><span>Layout</span><small>Choose your footprint</small></div><div class="layout-options">${['stacked', 'inline'].map(layout => `<button class="layout-option ${settings.overlay.layout === layout ? 'selected' : ''}" data-overlay-layout="${layout}">${icon(layout === 'stacked' ? 'activity' : 'overlay')}<span>${layout === 'stacked' ? 'Stacked' : 'Horizontal'}</span>${settings.overlay.layout === layout ? icon('check') : ''}</button>`).join('')}</div></div>
   <div class="control-block"><label class="slider-label" for="overlay-opacity">${runtime.native ? 'Window opacity' : 'Background opacity'} <output id="opacity-value">${settings.overlay.opacity}%</output></label><input id="overlay-opacity" data-overlay-slider="opacity" type="range" min="35" max="100" value="${settings.overlay.opacity}"/><div class="range-labels"><span>Subtle</span><span>Solid</span></div></div>
   <div class="control-block"><label class="slider-label" for="overlay-scale">Scale <output id="scale-value">${settings.overlay.scale}%</output></label><input id="overlay-scale" data-overlay-slider="scale" type="range" min="75" max="140" value="${settings.overlay.scale}"/><div class="range-labels"><span>Compact</span><span>Large</span></div></div>
-  <div class="control-block"><div class="control-label"><span>Visible metrics</span><small>Keep just what matters</small></div>${(['cpu', 'gpu', 'ram'] as Metric[]).map(m => `<label class="switch-row"><span>${icon(m)} ${m.toUpperCase()}</span><input type="checkbox" class="switch" data-overlay-metric="${m}" ${settings.overlay.metrics.includes(m) ? 'checked' : ''}/></label>`).join('')}</div>`;
+  <div class="control-block overlay-colors"><label>Text color<input type="color" id="overlay-color" value="${settings.overlay.color}"/></label><label>Background color<input type="color" id="overlay-background" value="${settings.overlay.background}"/></label></div>
+  <div class="control-block"><div class="control-label"><span>Visible metrics</span><small>Select up to 24 readings</small></div>${(['cpu', 'gpu', 'ram'] as Metric[]).map(m => metricSwitch(m)).join('')}
+  <details open><summary>Game & process</summary>${(['fps', 'frametime', 'process', 'process-cpu', 'process-ram', 'ping'] as OverlayMetric[]).map(metricSwitch).join('')}</details>
+  <details><summary>Individual hardware readings</summary>${Object.keys(overlayFields).filter(m => m.includes('-') && !m.startsWith('process')).map(m => metricSwitch(m as OverlayMetric)).join('')}</details>
+  ${runtime.native ? `<details><summary>Individual temperature sensors</summary>${sensors().filter(s => s.id && !s.id.startsWith('unavailable/')).map(s => metricSwitch(`sensor:${s.id}`)).join('') || '<p class="muted-copy">Waiting for readable sensor devices.</p>'}</details>` : ''}</div>
+  <div class="control-block"><div class="control-label"><span>Display order</span><small>Move your selected readings</small></div>${settings.overlay.metrics.map((m, i) => `<div class="overlay-order-row"><span>${escape(overlayLabel(m))}</span><button class="icon-button" data-move-overlay="${escape(m)}" data-direction="-1" aria-label="Move ${escape(overlayLabel(m))} up" ${i === 0 ? 'disabled' : ''}>${icon('up')}</button><button class="icon-button" data-move-overlay="${escape(m)}" data-direction="1" aria-label="Move ${escape(overlayLabel(m))} down" ${i === settings.overlay.metrics.length - 1 ? 'disabled' : ''}>${icon('down')}</button></div>`).join('') || '<p class="muted-copy">Choose a metric above.</p>'}</div>`;
+}
+
+function sensorDiagnostics(): string {
+  const d = runtime.diagnostics;
+  if (!runtime.native || !d) return '';
+  return `<div class="sensor-diagnostics info-banner"><div>${icon('info')}<strong>Sensor access · ${d.driverInstalled ? `PawnIO ${escape(d.driverVersion ?? '')}` : 'Driver setup needed'}${d.elevated ? ' · Administrator' : ''}</strong><p>${escape(d.cpu)}</p><p>${escape(d.ram)}</p></div><div class="diagnostic-actions">${!d.driverInstalled ? action('Install sensor driver', 'data-action="install-driver"') : ''}${action(d.elevated ? 'Restart Geronimo' : 'Restart as administrator', `data-action="${d.elevated ? 'restart-app' : 'restart-admin'}"`)}</div></div>`;
+}
+function overlayLabel(metric: OverlayMetric): string {
+  if (metric.startsWith('sensor:')) { const s = sensors().find(s => s.id === metric.slice(7)); return s ? `${s.name} · ${s.detail}` : 'Disconnected sensor'; }
+  return overlayFields[metric as keyof typeof overlayFields];
+}
+function metricSwitch(metric: OverlayMetric): string {
+  return `<label class="switch-row"><span>${escape(overlayLabel(metric))}</span><input type="checkbox" class="switch" aria-label="${escape(overlayLabel(metric))}" data-overlay-metric="${escape(metric)}" ${settings.overlay.metrics.includes(metric) ? 'checked' : ''}/></label>`;
+}
+function processOptions(): string {
+  return '<option value="">Choose a running process…</option>' + processes.filter(p => p.id).sort((a, b) => a.name.localeCompare(b.name)).map(p => `<option value="${p.id}" ${runtime.selectedProcess === p.id ? 'selected' : ''}>${escape(p.name)} · PID ${p.id}</option>`).join('');
+}
+function captureControls(): string {
+  return `<section class="panel capture-controls"><div><h2>Capture target</h2><p>Present rate and frame time for one process. Network ping uses the host below.</p></div><div class="capture-inputs"><label>Game or process<select id="overlay-process" ${runtime.native ? '' : 'disabled'}>${runtime.native ? processOptions() : '<option>Available in the Windows app</option>'}</select></label><label>Ping host<input id="overlay-ping-host" type="text" maxlength="253" spellcheck="false" value="${escape(settings.overlay.pingHost)}" placeholder="1.1.1.1 or a hostname"/></label></div><p class="capture-status" data-capture-status>${escape(runtime.performance?.captureStatus ?? 'Select a process and enable FPS or frame time.')}</p><p class="capture-status" data-ping-status>${escape(runtime.performance?.pingStatus ?? 'Enable Network ping to measure the chosen host every 5 seconds.')}</p>${runtime.native && !runtime.diagnostics?.elevated ? action('Restart as administrator', 'data-action="restart-admin"') : ''}<p class="muted-copy">FPS counts application presents on the busiest swap chain. Frame time is time between presents, not input latency. Ping is ICMP round-trip time, which can differ from in-game latency or be blocked by the host.</p></section>`;
 }
 function overlayPage(): string {
   return `${title('Stay in your element', 'Your metrics. Your space. Your overlay.', action(settings.overlay.visible ? runtime.native ? 'Hide desktop overlay' : 'Hide floating preview' : runtime.native ? 'Show desktop overlay' : 'Launch floating preview', 'data-action="overlay-toggle" class="button primary"', 'overlay'))}
+  ${captureControls()}
   <div class="overlay-studio"><section class="panel studio-preview"><div class="panel-heading"><h2>Overlay studio</h2><span class="tag">INTERACTIVE PREVIEW</span></div><div class="preview-scene"><div class="scene-noise"></div><div class="mountain mountain-back"></div><div class="mountain mountain-front"></div><div class="scene-crosshair">+</div><div class="scene-label">A little less distraction.<br><strong>A lot more immersion.</strong></div><div id="studio-overlay">${overlayMarkup(false)}</div><div class="scene-bottom"><span>DEMO BACKGROUND</span><span>${icon('monitor')} Preview canvas</span></div></div><div class="studio-footnote">${icon('info')} ${runtime.native ? 'Desktop overlay · Ctrl+Shift+O toggles visibility. Works with desktop and windowed/borderless apps. Exclusive-fullscreen games may cover it.' : 'Floating preview moves inside this app. Open the Windows app for a desktop overlay.'}</div></section><aside class="panel studio-controls"><div class="panel-heading"><div><h2>Make it yours</h2><p>Changes save automatically</p></div>${icon('sliders')}</div>${overlayControls()}${runtime.native ? `<label class="switch-row"><span>Click-through<small>Ctrl+Shift+O toggles overlay visibility</small></span><input class="switch" type="checkbox" id="overlay-click-through" ${settings.overlay.clickThrough ? 'checked' : ''}/></label>` : ''}<button class="button full-width" data-action="overlay-reset">${icon('reset')} Reset position</button></aside></div>`;
 }
 function renderMain(): void {
   const target = document.querySelector<HTMLElement>('#main-content');
   if (!target) return;
+  const expanded = Array.from(target.querySelectorAll<HTMLDetailsElement>('.studio-controls details')).map(d => d.open);
   target.innerHTML = page === 'overview' ? overview() : page === 'hardware' ? hardwarePage() : page === 'processes' ? processesPage() : page === 'history' ? historyPage() : overlayPage();
+  if (page === 'overlay') target.querySelectorAll<HTMLDetailsElement>('.studio-controls details').forEach((d, i) => { if (expanded[i] !== undefined) d.open = expanded[i]!; });
   document.querySelectorAll('[data-nav]').forEach(el => { el.classList.toggle('active', el.getAttribute('data-nav') === page); if (el.getAttribute('data-nav') === page) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current'); });
   document.querySelector('#breadcrumb-page')!.textContent = names[page];
   document.title = `${names[page]} — Geronimo`;
@@ -142,7 +172,7 @@ function updateNativeChrome(): void {
   const pause = document.querySelector('.pause-button');
   pause?.setAttribute('aria-label', paused ? 'Resume monitoring' : 'Pause monitoring');
   pause?.setAttribute('title', paused ? 'Resume monitoring' : 'Pause monitoring');
-  document.querySelector('.sidebar-version span:last-child')!.textContent = 'WINDOWS APP 0.1';
+  document.querySelector('.sidebar-version span:last-child')!.textContent = 'WINDOWS APP 0.2';
   document.querySelector('#notifications p')!.textContent = 'Temperature alert rules are not configured.';
   document.querySelector('#notifications small')!.textContent = 'This release provides read-only monitoring and a desktop overlay.';
 }
@@ -168,8 +198,36 @@ function preferenceControls(): string {
 function renderCustomizer(): void {
   dialog.innerHTML = `<div class="drawer-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h2 id="customizer-title">Your workspace.</h2><p>A few small changes. All yours.</p></div><button class="icon-button" data-action="close-customizer" aria-label="Close customization">${icon('x')}</button></div><div class="drawer-tabs" role="tablist" aria-label="Customization section">${[['appearance', 'Appearance'], ['widgets', 'Widgets'], ['preferences', 'Preferences']].map(([key, name]) => `<button role="tab" id="tab-${key}" aria-controls="customization-content" aria-selected="${customTab === key}" tabindex="${customTab === key ? 0 : -1}" data-custom-tab="${key}" class="${customTab === key ? 'active' : ''}">${name}</button>`).join('')}</div><div class="drawer-content" id="customization-content" role="tabpanel" aria-labelledby="tab-${customTab}">${customTab === 'appearance' ? appearanceControls() : customTab === 'widgets' ? widgetControls() : preferenceControls()}</div><div class="drawer-footer">${icon('check')} Changes saved automatically on this device</div>`;
 }
+function overlayValue(metric: OverlayMetric): string {
+  const number = (n: number | null | undefined, unit = '', digits = 0) => n == null || !Number.isFinite(n) ? 'Unavailable' : `${n.toFixed(digits)}${unit}`;
+  const perf = runtime.performance;
+  if (metric.startsWith('sensor:')) return temperature(sensors().find(s => s.id === metric.slice(7))?.temperature ?? null);
+  const [key, field] = metric.split('-');
+  if (['cpu', 'gpu', 'ram'].includes(key!) && field) {
+    const r = readings[key as Metric];
+    if (field === 'temp') return temperature(r.temperature);
+    if (field === 'usage') return number(r.usage, '%');
+    if (field === 'clock') return number(r.clock, ' GHz', 2);
+    if (field === 'power') return number(r.power, ' W');
+    if (field === 'used') return `${ramUsed()} GB`;
+  }
+  switch (metric) {
+    case 'fps': return number(perf?.fps);
+    case 'frametime': return number(perf?.frameTime, ' ms', 1);
+    case 'ping': return number(perf?.ping, ' ms');
+    case 'process': return perf?.processName ?? 'Select a process';
+    case 'process-cpu': return number(perf?.processCpu, '%', 1);
+    case 'process-ram': return number(perf?.processRam, ' MB');
+    default: return 'Unavailable';
+  }
+}
+function overlayEntry(m: OverlayMetric): string {
+  if (m === 'cpu' || m === 'gpu' || m === 'ram') return `<div class="overlay-metric"><span class="overlay-metric-name">${m.toUpperCase()}</span><strong>${live(`${m}-usage`, usage(m))}<small>%</small></strong><span>${live(`${m}-temperature`, temperature(readings[m].temperature))}</span><div class="overlay-meter"><i style="width:${readings[m].usage ?? 0}%;background:${hardware[m].color}" data-overlay-bar="${m}"></i></div></div>`;
+  return `<div class="overlay-metric overlay-field"><span class="overlay-metric-name" title="${escape(overlayLabel(m))}">${escape(overlayLabel(m))}</span><strong>${live(`overlay:${m}`, escape(overlayValue(m)))}</strong></div>`;
+}
 function overlayMarkup(floating: boolean): string {
-  return `<div class="telemetry-overlay ${settings.overlay.layout}" ${floating ? 'id="floating-overlay" role="region" aria-label="Floating overlay preview"' : ''} style="--overlay-opacity:${settings.overlay.opacity / 100};--overlay-scale:${settings.overlay.scale / 100}"><div class="overlay-head"><span class="mini-brand"><span class="brand-dot"></span> GERONIMO <span>${runtime.native ? 'LIVE' : 'DEMO'}</span></span>${floating ? `<button class="overlay-move" aria-label="Move overlay" title="Drag to move; use arrow keys when focused">${icon('grip')}</button><button class="overlay-close" data-action="overlay-close" aria-label="Close floating overlay">${icon('x')}</button>` : `<span class="overlay-dots">•••</span>`}</div><div class="overlay-metrics">${settings.overlay.metrics.map(m => `<div class="overlay-metric"><span class="overlay-metric-name" style="color:${hardware[m].color}">${m.toUpperCase()}</span><strong>${live(`${m}-usage`, usage(m))}<small>%</small></strong><span>${live(`${m}-temperature`, temperature(readings[m].temperature))}</span><div class="overlay-meter"><i style="width:${readings[m].usage ?? 0}%;background:${hardware[m].color}" data-overlay-bar="${m}"></i></div></div>`).join('') || '<p class="overlay-empty">Choose a metric to display.</p>'}</div></div>`;
+  const rgb = settings.overlay.background.slice(1).match(/../g)!.map(v => parseInt(v, 16)).join(',');
+  return `<div class="telemetry-overlay ${settings.overlay.layout}" ${floating ? 'id="floating-overlay" role="region" aria-label="Floating overlay preview"' : ''} style="--overlay-opacity:${settings.overlay.opacity / 100};--overlay-scale:${settings.overlay.scale / 100};--overlay-bg:${rgb};--overlay-text:${settings.overlay.color}"><div class="overlay-head"><span class="mini-brand"><span class="brand-dot"></span> GERONIMO <span>${runtime.native ? 'LIVE' : 'DEMO'}</span></span>${floating ? `<button class="overlay-move" aria-label="Move overlay" title="Drag to move; use arrow keys when focused">${icon('grip')}</button><button class="overlay-close" data-action="overlay-close" aria-label="Close floating overlay">${icon('x')}</button>` : `<span class="overlay-dots">•••</span>`}</div><div class="overlay-metrics">${settings.overlay.metrics.map(overlayEntry).join('') || '<p class="overlay-empty">Choose a metric to display.</p>'}</div></div>`;
 }
 function renderOverlay(): void {
   overlayRoot.innerHTML = settings.overlay.visible && !runtime.native ? overlayMarkup(true) : '';
@@ -219,6 +277,7 @@ function navigate(next: Page): void {
 }
 function updateTelemetry(): void {
   const values: Record<string, string | number> = { 'ram-used': ramUsed() };
+  for (const m of settings.overlay.metrics) values[`overlay:${m}`] = overlayValue(m);
   for (const m of ['cpu', 'gpu', 'ram'] as Metric[]) { values[`${m}-usage`] = usage(m); values[`${m}-temperature`] = temperature(readings[m].temperature); values[`${m}-clock`] = readings[m].clock?.toFixed(2) ?? '—'; values[`${m}-power`] = readings[m].power?.toFixed(0) ?? '—'; }
   document.querySelectorAll<HTMLElement>('[data-live]').forEach(el => { const value = values[el.dataset.live!]; if (value !== undefined) el.textContent = String(value); });
   for (const m of ['cpu', 'gpu', 'ram'] as Metric[]) {
@@ -241,6 +300,17 @@ function updateTelemetry(): void {
   if (runtime.native && page === 'processes') {
     document.querySelector('#process-rows')!.innerHTML = processRows();
     document.querySelector('[data-process-count]')!.textContent = `${processes.length} accessible processes`;
+  }
+  if (page === 'overlay') {
+    const capture = document.querySelector('[data-capture-status]');
+    if (capture && runtime.performance) capture.textContent = runtime.performance.captureStatus;
+    const ping = document.querySelector('[data-ping-status]');
+    if (ping && runtime.performance) ping.textContent = runtime.performance.pingStatus;
+    const select = document.querySelector<HTMLSelectElement>('#overlay-process');
+    if (select && document.activeElement !== select && runtime.native) {
+      const options = processOptions();
+      if (select.dataset.options !== options) { select.innerHTML = options; select.dataset.options = options; }
+    }
   }
 }
 function startTimer(): void {
@@ -271,6 +341,7 @@ document.addEventListener('click', (e) => {
   if (data.accentChoice) { settings.accent = data.accentChoice as typeof settings.accent; applyAppearance(); save(); renderCustomizer(); dialog.querySelector<HTMLElement>(`[data-accent-choice="${settings.accent}"]`)?.focus(); }
   if (data.density) { settings.density = data.density as typeof settings.density; applyAppearance(); save(); renderCustomizer(); dialog.querySelector<HTMLElement>(`[data-density="${settings.density}"]`)?.focus(); }
   if (data.moveWidget) { const m = data.moveWidget as Metric; const i = settings.order.indexOf(m); const next = i + Number(data.direction); if (next >= 0 && next < settings.order.length) { [settings.order[i], settings.order[next]] = [settings.order[next], settings.order[i]]; save(); renderMain(); renderCustomizer(); } }
+  if (data.moveOverlay) { const i = settings.overlay.metrics.indexOf(data.moveOverlay as OverlayMetric); const next = i + Number(data.direction); if (i >= 0 && next >= 0 && next < settings.overlay.metrics.length) { [settings.overlay.metrics[i], settings.overlay.metrics[next]] = [settings.overlay.metrics[next], settings.overlay.metrics[i]]; save(); renderMain(); renderOverlay(); } }
   if (data.unit) { settings.fahrenheit = data.unit === 'f'; save(); renderMain(); renderOverlay(); renderCustomizer(); dialog.querySelector<HTMLElement>(`[data-unit="${data.unit}"]`)?.focus(); }
   if (data.overlayLayout) { settings.overlay.layout = data.overlayLayout as 'stacked' | 'inline'; save(); renderMain(); renderOverlay(); }
   if (data.sort) { const key = data.sort as typeof sortKey; sortDirection = sortKey === key ? -sortDirection : -1; sortKey = key; renderMain(); }
@@ -284,6 +355,9 @@ document.addEventListener('click', (e) => {
     case 'overlay-reset': settings.overlay.position = null; save(); sendNative({ type: 'reset-overlay-position' }); renderOverlay(); toast('Overlay position reset.'); break;
     case 'reset-settings': settings = defaults(); applyAppearance(); save(); startTimer(); renderMain(); renderOverlay(); renderCustomizer(); toast('Default settings restored.'); break;
     case 'export': exportCSV(); break;
+    case 'install-driver': sendNative({ type: 'install-driver' }); break;
+    case 'restart-admin': sendNative({ type: 'restart-admin' }); break;
+    case 'restart-app': sendNative({ type: 'restart-app' }); break;
   }
 });
 document.addEventListener('input', (e) => {
@@ -302,7 +376,10 @@ document.addEventListener('input', (e) => {
 document.addEventListener('change', (e) => {
   const target = e.target as HTMLInputElement;
   if (target.dataset.widgetToggle) { const m = target.dataset.widgetToggle as Metric; settings.hidden = target.checked ? settings.hidden.filter(k => k !== m) : [...settings.hidden, m]; save(); renderMain(); }
-  if (target.dataset.overlayMetric) { const m = target.dataset.overlayMetric as Metric; settings.overlay.metrics = target.checked ? [...new Set([...settings.overlay.metrics, m])] : settings.overlay.metrics.filter(k => k !== m); save(); renderOverlay(); }
+  if (target.dataset.overlayMetric) { const m = target.dataset.overlayMetric as OverlayMetric; if (target.checked && settings.overlay.metrics.length >= 24) { target.checked = false; toast('The overlay supports up to 24 readings.'); return; } settings.overlay.metrics = target.checked ? [...new Set([...settings.overlay.metrics, m])] : settings.overlay.metrics.filter(k => k !== m); save(); renderMain(); renderOverlay(); }
+  if (target.id === 'overlay-process') { runtime.selectedProcess = Number(target.value) || null; runtime.performance = null; updateTelemetry(); sendNative({ type: 'select-process', id: runtime.selectedProcess }); }
+  if (target.id === 'overlay-ping-host') { settings.overlay.pingHost = target.value.trim(); save(); }
+  if (target.id === 'overlay-color' || target.id === 'overlay-background') { settings.overlay[target.id === 'overlay-color' ? 'color' : 'background'] = target.value; save(); renderOverlay(); }
   if (target.dataset.preference) { settings.reducedMotion = target.checked; applyAppearance(); save(); }
   if (target.id === 'refresh-rate') { settings.refresh = Number(target.value); save(); startTimer(); }
   if (target.id === 'overlay-click-through') { settings.overlay.clickThrough = target.checked; save(); }
@@ -341,6 +418,8 @@ nativeBridge?.addEventListener('message', event => {
     save(); if (page === 'overlay') renderMain();
   } else if (event.data?.type === 'sensor-error') {
     toast('A sensor update failed. Retrying on the next refresh.');
+  } else if (event.data?.type === 'action-result') {
+    toast(String(event.data.message));
   }
 });
 sendNative({ type: 'ready' });

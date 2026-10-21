@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>Geronimo</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
@@ -17,9 +17,11 @@
     <Content Include="../../dist/**/*" Link="Assets/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../README.md" Link="README.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../artifacts/vendor/**/*" Link="Tools/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="RequireFrontend" BeforeTargets="Build">
     <Error Condition="!Exists('../../dist/index.html')" Text="Build the UI first: npm ci and npm run build from the repository root." />
+    <Error Condition="!Exists('../../artifacts/vendor/PresentMon.exe') Or !Exists('../../artifacts/vendor/PawnIO_setup.exe')" Text="Fetch verified components first: python scripts/fetch-windows-tools.py" />
   </Target>
   <Target Name="RemoveUnusedWebViewWpf" BeforeTargets="ResolveAssemblyReferences">
     <ItemGroup>

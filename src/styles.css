@@ -185,5 +185,35 @@ dialog::backdrop { background: #0007; backdrop-filter: blur(3px); }dialog[open] 
 .gpu-selector { display: block; max-width: 420px; color: var(--muted); font-size: 11px; margin: 0 0 20px; }.gpu-selector select { margin-top: 7px; }
 .telemetry-overlay, .telemetry-overlay.inline { max-width: calc((100vw - 16px) / var(--overlay-scale)); }
 .inline .overlay-metrics { flex-wrap: wrap; }
+.capture-controls { padding: 22px; margin-bottom: 20px; }
+.capture-controls h2 { margin: 0 0 6px; font-size: 16px; }
+.capture-controls p { color: var(--muted); font-size: 11px; line-height: 1.7; }
+.capture-inputs { display: grid; grid-template-columns: 2fr 1fr; gap: 18px; margin: 18px 0; }
+.capture-inputs label { display: grid; gap: 8px; font-size: 12px; min-width: 0; }
+.capture-inputs input { border: 1px solid var(--border); background: var(--bg); color: var(--text); padding: 10px 12px; border-radius: 7px; width: 100%; min-width: 0; font: inherit; }
+.capture-status { margin: 6px 0; }
+.muted-copy { font-size: 10px; line-height: 1.7; color: var(--muted); }
+.overlay-colors { display: flex; gap: 22px; }
+.overlay-colors label { display: grid; gap: 9px; font-size: 11px; }
+.overlay-colors input { width: 75px; height: 32px; cursor: pointer; background: transparent; border: 1px solid var(--border); border-radius: 5px; }
+.studio-controls details { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 12px; }
+.studio-controls summary { cursor: pointer; font-size: 11px; color: var(--muted); padding-bottom: 8px; }
+.studio-controls .switch-row > span { overflow-wrap: anywhere; min-width: 0; padding-right: 8px; }
+.studio-controls .switch-row input { flex-shrink: 0; }
+.overlay-order-row { display: flex; align-items: center; gap: 4px; margin: 6px 0; font-size: 11px; }
+.overlay-order-row > span { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.telemetry-overlay { background: rgba(var(--overlay-bg, 15, 21, 19), var(--overlay-opacity)); color: var(--overlay-text, #90e6b5); }
+.overlay-metric-name { color: var(--overlay-text, #90e6b5); }
+.overlay-metric.overlay-field { grid-template-columns: 1fr auto; }
+.overlay-field .overlay-metric-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 135px; }
+.overlay-field strong { font-size: 12px; overflow: hidden; text-overflow: ellipsis; max-width: 135px; }
+.inline .overlay-field { min-width: 130px; }
+.sensor-diagnostics { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.sensor-diagnostics p { margin: 6px 0 0; font-size: 11px; line-height: 1.7; }
+.sensor-diagnostics strong { font-size: 12px; }
+.sensor-diagnostics .icon { vertical-align: middle; margin-right: 8px; }
+.diagnostic-actions { display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
+@media (max-width: 1000px) { .sensor-diagnostics { flex-direction: column; } }
+@media (max-width: 600px) { .capture-inputs { grid-template-columns: 1fr; } .diagnostic-actions { flex-shrink: 1; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
 :root[data-motion='reduced'] *, :root[data-motion='reduced'] *::before, :root[data-motion='reduced'] *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }

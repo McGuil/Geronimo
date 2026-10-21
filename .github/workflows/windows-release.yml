@@ -48,6 +48,18 @@ jobs:
         run: npx playwright install chromium
       - name: Test UI and native bridge contract
         run: npm test
+      - name: Test sensor validation and frame capture parsing
+        run: dotnet run --project tests/Geronimo.PolicyTests -c Release
+      - name: Fetch verified official hardware and frame components
+        run: python scripts/fetch-windows-tools.py
+      - name: Verify signed driver and Microsoft bootstrapper
+        run: |
+          foreach ($name in @('PawnIO_setup.exe', 'MicrosoftEdgeWebview2Setup.exe')) {
+            $signature = Get-AuthenticodeSignature "artifacts/vendor/$name"
+            if ($signature.Status -ne 'Valid') { throw "Invalid Authenticode signature: $name ($($signature.Status))" }
+            $expected = if ($name -eq 'PawnIO_setup.exe') { 'namazso' } else { 'Microsoft Corporation' }
+            if ($signature.SignerCertificate.Subject -notlike "*$expected*") { throw "Unexpected signer: $name" }
+          }
       - name: Publish portable Windows application
         run: dotnet publish desktop/Geronimo.Desktop/Geronimo.Desktop.csproj -c Release -r win-x64 --self-contained true -p:RestoreLockedMode=true -o artifacts/windows-win-x64
       - name: Publish shared-runtime Windows application
@@ -56,6 +68,15 @@ jobs:
         run: python scripts/package-windows.py
       - name: Package and verify shared-runtime ZIP
         run: python scripts/package-windows.py artifacts/windows-win-x64-slim
+      - name: Build one Windows installer
+        run: |
+          $compiler = "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe"
+          if (!(Test-Path $compiler)) { throw 'Inno Setup 6 is missing from the Windows runner.' }
+          & $compiler installer/Geronimo.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
+          $file = 'artifacts/Geronimo-Setup-win-x64.exe'
+          $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  Geronimo-Setup-win-x64.exe" | Set-Content "$file.sha256" -Encoding ascii
       - name: Upload downloadable Windows packages
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -63,6 +84,8 @@ jobs:
           path: |
             artifacts/*.zip
             artifacts/*.zip.sha256
+            artifacts/Geronimo-Setup-win-x64.exe
+            artifacts/Geronimo-Setup-win-x64.exe.sha256
           if-no-files-found: error
           compression-level: '0'
           retention-days: '7'
@@ -73,6 +96,8 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: >-
           gh release create "$env:RELEASE_TAG"
+          artifacts/Geronimo-Setup-win-x64.exe
+          artifacts/Geronimo-Setup-win-x64.exe.sha256
           artifacts/Geronimo-windows-win-x64.zip
           artifacts/Geronimo-windows-win-x64.zip.sha256
           artifacts/Geronimo-windows-win-x64-slim.zip
