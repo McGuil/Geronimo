@@ -4,7 +4,7 @@ A Windows 10/11 PC monitoring application with a customizable dashboard and nati
 
 ## Run the Windows application
 
-The prepared x64 output is `artifacts/windows-win-x64/Geronimo.exe`. Extract the **entire** portable ZIP and launch `Geronimo.exe`; its DLLs and `Assets` directory must remain beside it. This build includes the .NET runtime.
+Download `Geronimo-windows-win-x64.zip` from [GitHub Releases](https://github.com/McGuil/Geronimo/releases). Extract the **entire** portable ZIP and launch `Geronimo.exe` in the extracted `Geronimo` folder; its DLLs and `Assets` directory must remain beside it. This build includes the .NET runtime.
 
 Microsoft Edge **WebView2 Evergreen Runtime** must be installed. Obtain it from https://developer.microsoft.com/microsoft-edge/webview2/ if it is missing. The app displays a startup explanation if WebView2 cannot initialize.
 
@@ -12,7 +12,7 @@ Inside the desktop application, LibreHardwareMonitor enumerates Intel/AMD CPUs a
 
 Sensor support depends on the device, firmware, driver, and access level. Some CPU/motherboard sensors require running as administrator; the app starts without elevation and never automatically requests administrator access. RAM temperature appears only when the provider exposes an identifiable RAM/DIMM temperature sensor. Missing readings show Unavailable, rather than an estimate. Windows RAM usage comes from `GlobalMemoryStatusEx`.
 
-**Validation limit:** the Windows application builds and publishes successfully on this Linux cloud machine. Its UI and bridge contract are browser-tested. Launching the executable, real hardware compatibility, native overlay rendering, hotkey registration, and resource usage still require validation on Windows. No Windows CPU/RAM footprint has been measured or promised.
+The release workflow builds and packages the application on a GitHub-hosted Windows runner after the UI and bridge tests pass. Published ZIPs have also been downloaded and checked against their SHA-256 files. **Validation limit:** launching the desktop application on real hardware, sensor compatibility, native overlay rendering, hotkey registration, and resource usage still require real-PC validation. No Windows CPU/RAM footprint has been measured or promised.
 
 ## Features in this first build
 
