@@ -2,6 +2,8 @@
 
 A Windows 10/11 PC monitoring application with a customizable dashboard and native desktop overlay. CPU, GPU, and RAM are the focus, with an inventory for every temperature sensor exposed by the hardware provider.
 
+Geronimo uses its mint **G** icon in the executable, window/taskbar, system tray, installer, and shortcuts. The Windows ICO contains sizes from 16 to 256 pixels, based on the existing vector favicon. A brief G-logo animation plays when the dashboard first opens, without delaying sensor startup. Reduced Motion or the Windows reduced-motion preference skips it; interacting with the window skips it immediately.
+
 ## Run the Windows application
 
 Download **`Geronimo-Setup-win-x64.exe`** from [GitHub Releases](https://github.com/McGuil/Geronimo/releases). One installer sets up the dashboard, native overlay, .NET runtime, PresentMon collector, shortcuts and uninstaller. Keep the **PawnIO sensor driver** task selected for CPU, DIMM and motherboard access; complete its setup window and restart Windows if requested. Existing PawnIO 2.0+ installations are preserved. WebView2 setup needs internet access if that shared Microsoft runtime is missing.

@@ -8,6 +8,7 @@ internal sealed class TrayController : IDisposable
     private readonly Func<bool> _overlayVisible;
     private readonly Func<bool> _paused;
     private readonly NotifyIcon _icon;
+    private readonly Icon _brandIcon;
     private readonly ContextMenuStrip _menu = new();
     private bool _exitRequested;
     private bool _tipShown;
@@ -31,7 +32,8 @@ internal sealed class TrayController : IDisposable
         _menu.Items.Add(new ToolStripSeparator());
         AddItem("exit", "Exit Geronimo", Exit);
         _menu.Opening += (_, _) => UpdateState();
-        _icon = new NotifyIcon { Text = "Geronimo — monitoring", Icon = SystemIcons.Application, ContextMenuStrip = _menu, Visible = true };
+        _brandIcon = BrandIcon.Create(SystemInformation.SmallIconSize);
+        _icon = new NotifyIcon { Text = "Geronimo — monitoring", Icon = _brandIcon, ContextMenuStrip = _menu, Visible = true };
         _icon.DoubleClick += (_, _) => Restore();
         _window.Resize += WindowStateChanged;
         _window.VisibleChanged += WindowStateChanged;
@@ -110,6 +112,7 @@ internal sealed class TrayController : IDisposable
         _window.FormClosing -= WindowClosing;
         _icon.Visible = false;
         _icon.Dispose();
+        _brandIcon.Dispose();
         _menu.Dispose();
     }
 }

@@ -173,7 +173,7 @@ function updateNativeChrome(): void {
   if (pause) pause.innerHTML = icon(paused ? 'play' : 'pause');
   pause?.setAttribute('aria-label', paused ? 'Resume monitoring' : 'Pause monitoring');
   pause?.setAttribute('title', paused ? 'Resume monitoring' : 'Pause monitoring');
-  document.querySelector('.sidebar-version span:last-child')!.textContent = 'WINDOWS APP 0.3';
+  document.querySelector('.sidebar-version span:last-child')!.textContent = 'WINDOWS APP 0.3.1';
   document.querySelector('#notifications p')!.textContent = 'Temperature alert rules are not configured.';
   document.querySelector('#notifications small')!.textContent = 'This release provides read-only monitoring and a desktop overlay.';
 }
@@ -439,3 +439,26 @@ nativeBridge?.addEventListener('message', event => {
 sendNative({ type: 'ready' });
 sendNative({ type: 'preferences', settings });
 sendNative({ type: 'page', page });
+showLaunchAnimation();
+
+function showLaunchAnimation(): void {
+  if (settings.reducedMotion || matchMedia('(prefers-reduced-motion: reduce)').matches || document.hidden) return;
+  const splash = document.createElement('div');
+  splash.className = 'launch-screen';
+  splash.setAttribute('aria-hidden', 'true');
+  splash.innerHTML = '<img class="launch-logo" src="/favicon.svg" width="80" height="80" alt=""/><span class="launch-name">geronimo</span><span class="launch-caption">Your PC, in perspective.</span>';
+  const dismiss = () => {
+    clearTimeout(timeout);
+    splash.remove();
+    document.removeEventListener('pointerdown', dismiss, true);
+    document.removeEventListener('keydown', dismiss, true);
+    document.removeEventListener('visibilitychange', onVisibility);
+  };
+  const onVisibility = () => { if (document.hidden) dismiss(); };
+  const timeout = setTimeout(dismiss, 1000);
+  splash.addEventListener('animationend', event => { if (event.target === splash) dismiss(); });
+  document.addEventListener('pointerdown', dismiss, { capture: true, once: true });
+  document.addEventListener('keydown', dismiss, { capture: true, once: true });
+  document.addEventListener('visibilitychange', onVisibility);
+  document.body.append(splash);
+}

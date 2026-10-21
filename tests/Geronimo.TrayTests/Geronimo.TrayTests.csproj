@@ -6,5 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../desktop/Geronimo.Desktop/TrayController.cs" Link="TrayController.cs" />
+    <Compile Include="../../desktop/Geronimo.Desktop/BrandIcon.cs" Link="BrandIcon.cs" />
+    <EmbeddedResource Include="../../public/favicon.ico" LogicalName="Geronimo.AppIcon.ico" />
   </ItemGroup>
 </Project>

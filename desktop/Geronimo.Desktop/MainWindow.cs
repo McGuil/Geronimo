@@ -11,6 +11,7 @@ internal sealed class MainWindow : Form
     internal static readonly string DataFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Geronimo");
     internal static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = true };
     private readonly WebView2 _web = new() { Dock = DockStyle.Fill };
+    private readonly Icon _appIcon = BrandIcon.Create(new Size(32, 32));
     private readonly SensorService _sensors = new();
     private readonly OverlayWindow _overlay = new();
     private readonly PerformanceService _performance = new();
@@ -33,6 +34,8 @@ internal sealed class MainWindow : Form
     public MainWindow()
     {
         Text = "Geronimo — Your PC, in perspective";
+        Icon = _appIcon;
+        Disposed += (_, _) => _appIcon.Dispose();
         Size = new Size(1440, 1000);
         MinimumSize = new Size(920, 650);
         StartPosition = FormStartPosition.CenterScreen;

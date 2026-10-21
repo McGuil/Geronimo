@@ -1,4 +1,4 @@
-#define AppVersion "0.3.0"
+#define AppVersion "0.3.1"
 [Setup]
 AppId={{47170367-DC26-4A99-9B8F-BE8D6C602575}
 AppName=Geronimo
@@ -19,6 +19,7 @@ PrivilegesRequired=admin
 WizardStyle=modern
 CloseApplications=yes
 SetupLogging=yes
+SetupIconFile=..\public\favicon.ico
 InfoBeforeFile=install-notes.txt
 
 [Tasks]
@@ -29,8 +30,8 @@ Name: "pawnio"; Description: "Install PawnIO 2.1 sensor driver (needed for CPU, 
 Source: "..\artifacts\windows-win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Geronimo"; Filename: "{app}\Geronimo.exe"
-Name: "{autodesktop}\Geronimo"; Filename: "{app}\Geronimo.exe"; Tasks: desktopicon
+Name: "{group}\Geronimo"; Filename: "{app}\Geronimo.exe"; IconFilename: "{app}\Geronimo.exe"; IconIndex: 0
+Name: "{autodesktop}\Geronimo"; Filename: "{app}\Geronimo.exe"; IconFilename: "{app}\Geronimo.exe"; IconIndex: 0; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\Tools\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "Installing Microsoft Edge WebView2 Runtime (internet access may be required)..."; Flags: runhidden waituntilterminated; Check: NeedsWebView2

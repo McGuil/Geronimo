@@ -18,6 +18,15 @@
 :root[data-theme='light'][data-accent='amber'] { --accent: #996019; --accent-rgb: 153, 96, 25; --accent-ink: #fff; }
 * { box-sizing: border-box; }
 body { margin: 0; font-size: 13px; line-height: 1.5; }
+.launch-screen { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--bg); pointer-events: none; animation: launch-dismiss 850ms ease both; }
+.launch-logo { width: 80px; height: 80px; animation: launch-mark 600ms cubic-bezier(.2,.8,.2,1) both; }
+.launch-name { margin-top: 20px; color: var(--text); font-size: 27px; font-weight: 650; letter-spacing: -.8px; animation: launch-wordmark 550ms 100ms ease both; }
+.launch-caption { margin-top: 6px; color: var(--muted); font-size: 10px; letter-spacing: 1.4px; animation: launch-wordmark 500ms 160ms ease both; }
+@keyframes launch-dismiss { 0%, 60% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
+@keyframes launch-mark { 0% { opacity: 0; transform: translateY(12px) scale(.78) rotate(-6deg); } 70% { opacity: 1; transform: translateY(0) scale(1.04) rotate(0); } 100% { opacity: 1; transform: scale(1); } }
+@keyframes launch-wordmark { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+:root[data-motion='reduced'] .launch-screen { display: none; }
+@media (prefers-reduced-motion: reduce) { .launch-screen { display: none; animation: none; } }
 button, input, select { font: inherit; }
 button, a, input, select { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; color: inherit; }
