@@ -51,7 +51,15 @@ jobs:
       - name: Test sensor validation and frame capture parsing
         run: dotnet run --project tests/Geronimo.PolicyTests -c Release
       - name: Test native Windows tray lifecycle
-        run: dotnet run --project tests/Geronimo.TrayTests -c Release
+        run: |
+          $output = (& dotnet run --project tests/Geronimo.TrayTests -c Release -r win-x64 --self-contained true 2>&1 | Out-String)
+          $result = $LASTEXITCODE
+          Write-Host $output
+          if ($result -ne 0) {
+            $detail = $output.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Native tray lifecycle::$detail"
+            exit $result
+          }
       - name: Fetch verified official hardware and frame components
         run: python scripts/fetch-windows-tools.py
       - name: Verify signed driver and Microsoft bootstrapper
