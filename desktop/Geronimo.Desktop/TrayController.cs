@@ -12,6 +12,7 @@ internal sealed class TrayController : IDisposable
     private bool _exitRequested;
     private bool _tipShown;
     private bool _disposed;
+    private bool _restoring;
     public bool CloseToTray { get; set; } = true;
     public bool MinimizeToTray { get; set; } = true;
     public bool IsBackground { get; private set; }
@@ -67,10 +68,18 @@ internal sealed class TrayController : IDisposable
     public void Restore()
     {
         if (_disposed || _exitRequested) return;
-        _window.WindowState = FormWindowState.Normal;
-        _window.Show();
-        _window.Activate();
-        SetBackground(false);
+        // A hidden HWND can still have WS_MINIMIZE even after Form.WindowState changes.
+        // Ignore intermediate resize/visibility events until both states have been restored.
+        _restoring = true;
+        try
+        {
+            _window.WindowState = FormWindowState.Normal;
+            _window.Show();
+            _window.WindowState = FormWindowState.Normal;
+            _window.Activate();
+        }
+        finally { _restoring = false; }
+        SetBackground(!_window.Visible || _window.WindowState == FormWindowState.Minimized);
     }
     public void Exit() { _exitRequested = true; _window.Close(); }
     private void WindowClosing(object? sender, FormClosingEventArgs e)
@@ -81,7 +90,7 @@ internal sealed class TrayController : IDisposable
     }
     private void WindowStateChanged(object? sender, EventArgs e)
     {
-        if (_disposed || _exitRequested) return;
+        if (_disposed || _exitRequested || _restoring) return;
         if (_window.WindowState == FormWindowState.Minimized && MinimizeToTray) HideToTray();
         else SetBackground(!_window.Visible || _window.WindowState == FormWindowState.Minimized);
     }

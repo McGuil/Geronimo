@@ -20,8 +20,12 @@ internal static class Program
             window.WindowState = FormWindowState.Minimized; Application.DoEvents();
             Check(!window.Visible && !window.IsDisposed && tray.TrayVisible && background, "Minimize must hide to a live tray without disposing the application.");
             Check(overlay.Visible, "Hiding the dashboard must not hide the independent overlay.");
+            var openClicks = 0;
+            tray.Menu.Items["open"]!.Click += (_, _) => openClicks++;
             ((ToolStripMenuItem)tray.Menu.Items["open"]!).PerformClick(); Application.DoEvents();
-            Check(window.Visible && window.WindowState == FormWindowState.Normal && !background, "Tray Open must restore the dashboard.");
+            Check(openClicks == 1, "The tray Open menu must dispatch its click action.");
+            Check(window.Visible && window.WindowState == FormWindowState.Normal && !background,
+                $"Tray Open must restore the dashboard. Visible={window.Visible}, state={window.WindowState}, background={background}.");
             window.Close(); Application.DoEvents();
             Check(!window.IsDisposed && !window.Visible && background, "The X button must keep monitoring alive by default.");
             ((ToolStripMenuItem)tray.Menu.Items["overlay"]!).PerformClick();
