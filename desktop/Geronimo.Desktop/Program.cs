@@ -11,7 +11,22 @@ internal static class Program
             try { using var process = System.Diagnostics.Process.GetProcessById(previous); process.WaitForExit(10000); }
             catch (Exception e) when (e is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { }
         }
-        ApplicationConfiguration.Initialize();
-        Application.Run(new MainWindow());
+        Mutex mutex;
+        bool ownsInstance;
+        try { mutex = new Mutex(true, AppInstance.MutexName, out ownsInstance); }
+        catch (UnauthorizedAccessException) { AppInstance.ActivateExisting(); return; }
+        using var instance = mutex;
+        if (!ownsInstance)
+        {
+            try { ownsInstance = instance.WaitOne(0); }
+            catch (AbandonedMutexException) { ownsInstance = true; }
+        }
+        if (!ownsInstance) { AppInstance.ActivateExisting(); return; }
+        try
+        {
+            ApplicationConfiguration.Initialize();
+            Application.Run(new MainWindow());
+        }
+        finally { instance.ReleaseMutex(); }
     }
 }

@@ -18,6 +18,14 @@ Intel/AMD CPU and Intel/AMD/NVIDIA GPU enumeration is automatic within the provi
 
 The release workflow builds and packages the application on a GitHub-hosted Windows runner after UI, bridge, sensor-policy and frame-parser regression tests pass. It checks pinned component SHA-256 hashes and validates the driver/bootstrapper Authenticode signatures. **Validation limit:** actual hardware access, frame capture, installer component setup/UAC, native overlay rendering, hotkey registration and resource usage still need real-PC validation. No Windows CPU/RAM footprint is promised.
 
+## Run in the background
+
+Minimize or click **×** to hide Geronimo to the Windows system tray. Monitoring continues at the configured interval, and an enabled overlay stays visible. Double-click the tray icon to reopen the dashboard. Right-click it for **Open Geronimo**, **Run in background**, overlay visibility, **Pause/Resume monitoring**, or **Exit Geronimo**. Launching the shortcut again restores the existing instance for your Windows user.
+
+Under **Preferences → Background monitoring**, switch **Minimize to tray** and **Close to tray** independently, or use **Run in background** directly. Both switches are enabled by default. Turn off Close to tray for ordinary ×-to-exit behavior. Windows shutdown, explicit tray Exit, and administrator restarts close the app normally. Exit Geronimo before replacing a portable installation or updating it manually.
+
+While hidden, native sensors and the overlay continue; dashboard updates/full process lists stop, and Geronimo asks WebView2 to suspend. Up to 1,800 current-session utilization samples remain in a native memory buffer and are restored with their original timestamps when you reopen. Only the selected process is sampled in the background; FPS/ping capture continues when the overlay needs it. This runs while you are signed in and Windows is awake. It does not install a Windows service or automatically launch at login. Actual background resource use still needs profiling on your PC.
+
 ## Features
 
 - CPU/GPU/RAM cards with utilization, available temperature, and recent history.
@@ -33,7 +41,7 @@ The release workflow builds and packages the application on a GitHub-hosted Wind
 - **Ctrl+Shift+O** toggles the desktop overlay when Windows grants the global shortcut. Drag the overlay with click-through off. Reset position in Overlay studio. Always-on-top is intended for desktop/windowed/borderless applications; exclusive-fullscreen game compatibility is not implemented or verified.
 - The browser preview includes a draggable in-app overlay, including keyboard movement using its grip. It cannot float over other applications.
 
-Temperature alert rules, system tray/start-at-login settings, permanent history, fan-speed displays, per-process GPU usage, and game-specific overlays are not implemented in this release.
+Temperature alert rules, launch-at-login settings, permanent history, fan-speed displays, per-process GPU usage, and game-specific overlays are not implemented in this release.
 
 ## Development
 
@@ -50,6 +58,8 @@ npm run dev -- --port 5173 --strictPort
 npm run build
 npm test
 dotnet run --project tests/Geronimo.PolicyTests -c Release
+# Windows only: real WinForms tray lifecycle checks.
+dotnet run --project tests/Geronimo.TrayTests -c Release
 ```
 
 Tests use `/usr/bin/chromium` when available. Otherwise run `npx playwright install chromium`, or supply `PLAYWRIGHT_CHROMIUM_EXECUTABLE`. Playwright starts the dev server automatically, or reuses an existing local server. Bridge tests use explicit fixtures; they do not validate real Windows sensors.

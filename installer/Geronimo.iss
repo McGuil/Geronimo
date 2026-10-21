@@ -1,4 +1,4 @@
-#define AppVersion "0.2.0"
+#define AppVersion "0.3.0"
 [Setup]
 AppId={{47170367-DC26-4A99-9B8F-BE8D6C602575}
 AppName=Geronimo

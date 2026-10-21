@@ -29,4 +29,10 @@ Check(frames.Read(now.AddSeconds(3)) == (null, null), "Idle or exited applicatio
 Check(FrameStatistics.SplitCsv("\"Game, \"\"Test\"\".exe\",123")[0] == "Game, \"Test\".exe", "CSV parser must support quoted executable names.");
 frames.Add("unexpected,error,text", now);
 Check(frames.Read(now).Fps is null, "Diagnostics must not become fake frame data.");
+var history = new TelemetryHistory();
+for (var i = 0; i < 2000; i++) history.Add(i * 2000L, i == 1999 ? null : 23, 38, 45);
+var restored = history.Snapshot();
+Check(restored.Length == 1800 && restored[0].Timestamp == 400000 && restored[^1].Cpu is null, "Background history must retain bounded, correctly timed samples and unknown values.");
+history.ClearGpu();
+Check(history.Snapshot().All(s => s.Gpu is null) && history.Snapshot()[0].Cpu == 23, "Switching GPUs must clear only GPU history before restoring the dashboard.");
 Console.WriteLine($"Passed {checks} sensor and frame-capture regression checks.");

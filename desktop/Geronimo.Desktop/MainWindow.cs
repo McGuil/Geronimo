@@ -14,6 +14,9 @@ internal sealed class MainWindow : Form
     private readonly SensorService _sensors = new();
     private readonly OverlayWindow _overlay = new();
     private readonly PerformanceService _performance = new();
+    private readonly TrayController _tray;
+    private readonly TelemetryHistory _history = new();
+    private Snapshot? _latestSnapshot;
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 2000 };
     private bool _busy;
     private bool _ready;
@@ -23,6 +26,8 @@ internal sealed class MainWindow : Form
     private int? _selectedProcess;
     private bool _paused;
     private bool _opened;
+    private bool _opening;
+    private bool _backgrounded;
     private OverlaySettings _overlaySettings = new();
 
     public MainWindow()
@@ -33,10 +38,12 @@ internal sealed class MainWindow : Form
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.FromArgb(17, 19, 20);
         Controls.Add(_web);
+        _tray = new TrayController(this, background => _ = SetBackgroundAsync(background), ToggleOverlay,
+            () => _overlaySettings.Visible, TogglePause, () => _paused);
         Shown += async (_, _) => await InitializeAsync();
         _timer.Tick += async (_, _) => await PublishAsync();
-        FormClosing += (_, _) => { _closing = true; _timer.Stop(); _overlay.Close(); };
-        FormClosed += (_, _) => { _timer.Dispose(); _performance.Dispose(); if (!_busy) _sensors.Dispose(); UnregisterHotKey(Handle, 1); };
+        FormClosing += (_, e) => { if (e.Cancel) return; _closing = true; _timer.Stop(); _overlay.Close(); };
+        FormClosed += (_, _) => { _tray.Dispose(); _timer.Dispose(); _performance.Dispose(); if (!_busy && !_opening) _sensors.Dispose(); UnregisterHotKey(Handle, 1); };
     }
 
     private async Task InitializeAsync()
@@ -48,6 +55,7 @@ internal sealed class MainWindow : Form
             if (!File.Exists(Path.Combine(assets, "index.html"))) throw new FileNotFoundException("UI assets are missing. Rebuild using scripts/build-windows.ps1.");
             var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(DataFolder, "WebView2"));
             await _web.EnsureCoreWebView2Async(environment);
+            if (_closing) return;
             _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
             _web.CoreWebView2.Settings.AreDevToolsEnabled = false;
             _web.CoreWebView2.SetVirtualHostNameToFolderMapping("geronimo.local", assets, CoreWebView2HostResourceAccessKind.DenyCors);
@@ -59,11 +67,13 @@ internal sealed class MainWindow : Form
             _web.CoreWebView2.WebMessageReceived += async (_, e) => await OnMessageAsync(e);
             _web.CoreWebView2.Navigate("https://geronimo.local/index.html");
             RegisterHotKey(Handle, 1, 0x0002 | 0x0004 | 0x4000, (uint)Keys.O); // Ctrl+Shift+O, no repeat.
+            AppInstance.AllowActivation(Handle);
         }
         catch (Exception e)
         {
+            if (_closing) return;
             MessageBox.Show(this, $"Geronimo could not start. Install the Microsoft Edge WebView2 Evergreen Runtime if it is missing.\n\n{e.Message}", "Geronimo startup", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            Close();
+            _tray.Exit();
         }
     }
 
@@ -78,10 +88,17 @@ internal sealed class MainWindow : Form
             switch (type.GetString())
             {
                 case "ready":
-                    if (!_opened) { _opened = true; await Task.Run(_sensors.Open); }
+                    if (!_opened)
+                    {
+                        _opened = true; _opening = true;
+                        try { await Task.Run(_sensors.Open); }
+                        finally { _opening = false; }
+                    }
+                    if (_closing) { _sensors.Dispose(); return; }
                     _ready = true;
                     await PublishAsync();
                     _timer.Start();
+                    if (_backgrounded) await SetBackgroundAsync(true);
                     break;
                 case "preferences":
                     if (root.TryGetProperty("settings", out var settings)) ApplyPreferences(settings);
@@ -93,7 +110,8 @@ internal sealed class MainWindow : Form
                     ConfigureCapture();
                     if (_processes) await PublishAsync();
                     break;
-                case "pause": _paused = root.TryGetProperty("paused", out var paused) && paused.GetBoolean(); ConfigureCapture(); break;
+                case "pause": _paused = root.TryGetProperty("paused", out var paused) && paused.GetBoolean(); ConfigureCapture(); _tray.UpdateState(); break;
+                case "run-in-background": _tray.HideToTray(); break;
                 case "select-process":
                     _selectedProcess = root.TryGetProperty("id", out var processId) && processId.TryGetInt32(out var pid) && pid > 0 ? pid : null;
                     _sensors.TargetProcessId = _selectedProcess;
@@ -102,6 +120,7 @@ internal sealed class MainWindow : Form
                     break;
                 case "select-gpu":
                     _sensors.SelectedGpuId = root.TryGetProperty("id", out var id) ? id.GetString() : null;
+                    _history.ClearGpu();
                     await PublishAsync();
                     break;
                 case "reset-overlay-position": _overlay.ResetPosition(); break;
@@ -123,6 +142,8 @@ internal sealed class MainWindow : Form
             DwmSetWindowAttribute(Handle, 20, ref dark, sizeof(int));
         }
         if (settings.TryGetProperty("refresh", out var refresh) && refresh.TryGetInt32(out var interval) && interval is 1000 or 2000 or 5000) _timer.Interval = interval;
+        if (settings.TryGetProperty("closeToTray", out var closeToTray) && closeToTray.ValueKind is JsonValueKind.True or JsonValueKind.False) _tray.CloseToTray = closeToTray.GetBoolean();
+        if (settings.TryGetProperty("minimizeToTray", out var minimizeToTray) && minimizeToTray.ValueKind is JsonValueKind.True or JsonValueKind.False) _tray.MinimizeToTray = minimizeToTray.GetBoolean();
         if (settings.TryGetProperty("overlay", out var overlay))
         {
             _overlaySettings = overlay.Deserialize<OverlaySettings>(JsonOptions) ?? new();
@@ -138,6 +159,7 @@ internal sealed class MainWindow : Form
             if (_overlaySettings.Visible && !_overlay.Visible) _overlay.Show();
             else if (!_overlaySettings.Visible && _overlay.Visible) _overlay.Hide();
             ConfigureCapture();
+            _tray.UpdateState();
         }
     }
 
@@ -149,24 +171,73 @@ internal sealed class MainWindow : Form
         {
             var snapshot = await Task.Run(() =>
             {
-                var sample = _sensors.Read(_processes);
+                var sample = _sensors.Read(!_backgrounded && _processes);
                 var performance = _performance.Read(_sensors.TargetProcess, _overlaySettings.PingHost,
-                    (_overlaySettings.Visible || _overlayPage) && _overlaySettings.Metrics.Contains("ping"));
+                    (_overlaySettings.Visible || (!_backgrounded && _overlayPage)) && _overlaySettings.Metrics.Contains("ping"));
                 return sample with { Performance = performance };
             });
             if (_closing) return;
-            _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(snapshot, JsonOptions));
+            _latestSnapshot = snapshot;
+            _history.Add(snapshot.Timestamp, snapshot.Readings["cpu"].Usage, snapshot.Readings["gpu"].Usage, snapshot.Readings["ram"].Usage);
+            if (!_backgrounded) _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(snapshot, JsonOptions));
             _overlay.SetSnapshot(snapshot);
         }
         catch
         {
-            if (!_closing) _web.CoreWebView2.PostWebMessageAsJson("{\"type\":\"sensor-error\",\"message\":\"A sensor update failed. Available readings will be retried on the next interval.\"}");
+            if (!_closing && !_backgrounded) _web.CoreWebView2.PostWebMessageAsJson("{\"type\":\"sensor-error\",\"message\":\"A sensor update failed. Available readings will be retried on the next interval.\"}");
         }
         finally { _busy = false; if (_closing) _sensors.Dispose(); }
     }
 
-    private void ConfigureCapture() => _performance.Configure(_selectedProcess, !_paused && (_overlaySettings.Visible || _overlayPage)
+    private void ConfigureCapture() => _performance.Configure(_selectedProcess, !_paused && (_overlaySettings.Visible || (!_backgrounded && _overlayPage))
         && _overlaySettings.Metrics.Any(m => m is "fps" or "frametime"));
+
+    private async Task SetBackgroundAsync(bool background)
+    {
+        _backgrounded = background;
+        ConfigureCapture();
+        if (_closing || !_ready || _web.CoreWebView2 is null) return;
+        try
+        {
+            if (background)
+            {
+                _web.Visible = false;
+                await _web.CoreWebView2.TrySuspendAsync();
+                // A quick restore can race suspension completion.
+                if (!_backgrounded && !_closing) { _web.CoreWebView2.Resume(); _web.Visible = true; }
+            }
+            else
+            {
+                _web.CoreWebView2.Resume(); _web.Visible = true;
+                if (_latestSnapshot is not null) _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(_latestSnapshot, JsonOptions));
+                PostUiState(new { type = "history-sync", samples = _history.Snapshot() });
+                PostUiState(new { type = "monitoring-state", paused = _paused });
+                PostUiState(new { type = "overlay-state", visible = _overlaySettings.Visible });
+                await PublishAsync();
+            }
+        }
+        catch (Exception e) when (e is InvalidOperationException or ObjectDisposedException or System.Runtime.InteropServices.COMException) { /* Native polling remains active if WebView2 cannot suspend/resume. */ }
+        finally { if (!_backgrounded && !_closing && !_web.IsDisposed) _web.Visible = true; }
+    }
+    private void PostUiState(object state)
+    {
+        if (_ready && !_backgrounded && !_closing) _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(state, JsonOptions));
+    }
+    private void TogglePause()
+    {
+        _paused = !_paused;
+        ConfigureCapture();
+        _tray.UpdateState();
+        PostUiState(new { type = "monitoring-state", paused = _paused });
+    }
+    private void ToggleOverlay()
+    {
+        _overlaySettings.Visible = !_overlaySettings.Visible;
+        _overlay.Configure(_overlaySettings);
+        if (_overlaySettings.Visible) _overlay.Show(); else _overlay.Hide();
+        ConfigureCapture(); _tray.UpdateState();
+        PostUiState(new { type = "overlay-state", visible = _overlaySettings.Visible });
+    }
     private static bool IsColor(string? color) => color is { Length: 7 } && color[0] == '#' && color.Skip(1).All(Uri.IsHexDigit);
     private void ActionResult(string message) => _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "action-result", message }, JsonOptions));
     private async Task InstallDriverAsync()
@@ -189,21 +260,15 @@ internal sealed class MainWindow : Form
             info.ArgumentList.Add("--restart-from"); info.ArgumentList.Add(Environment.ProcessId.ToString());
             if (elevate) info.Verb = "runas";
             using var restarted = Process.Start(info);
-            if (restarted != null) Close();
+            if (restarted != null) _tray.Exit();
         }
         catch (System.ComponentModel.Win32Exception) { ActionResult("Restart was cancelled or could not start. The current session is still running."); }
     }
 
     protected override void WndProc(ref Message message)
     {
-        if (message.Msg == 0x0312 && message.WParam.ToInt32() == 1)
-        {
-            _overlaySettings.Visible = !_overlaySettings.Visible;
-            _overlay.Configure(_overlaySettings);
-            if (_overlaySettings.Visible) _overlay.Show(); else _overlay.Hide();
-            ConfigureCapture();
-            if (_ready) _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "overlay-state", visible = _overlaySettings.Visible }, JsonOptions));
-        }
+        if (message.Msg == 0x0312 && message.WParam.ToInt32() == 1) ToggleOverlay();
+        if (AppInstance.ActivationMessage != 0 && (uint)message.Msg == AppInstance.ActivationMessage) _tray.Restore();
         base.WndProc(ref message);
     }
 

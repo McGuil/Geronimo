@@ -50,6 +50,8 @@ jobs:
         run: npm test
       - name: Test sensor validation and frame capture parsing
         run: dotnet run --project tests/Geronimo.PolicyTests -c Release
+      - name: Test native Windows tray lifecycle
+        run: dotnet run --project tests/Geronimo.TrayTests -c Release
       - name: Fetch verified official hardware and frame components
         run: python scripts/fetch-windows-tools.py
       - name: Verify signed driver and Microsoft bootstrapper

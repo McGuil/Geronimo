@@ -6,5 +6,6 @@
   <ItemGroup>
     <Compile Include="../../desktop/Geronimo.Desktop/TemperaturePolicy.cs" Link="TemperaturePolicy.cs" />
     <Compile Include="../../desktop/Geronimo.Desktop/FrameStatistics.cs" Link="FrameStatistics.cs" />
+    <Compile Include="../../desktop/Geronimo.Desktop/TelemetryHistory.cs" Link="TelemetryHistory.cs" />
   </ItemGroup>
 </Project>

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 // Explicit fixtures exercise the WebView2 message contract, not real Windows sensors.
 const fixture = () => ({
@@ -138,4 +139,48 @@ test('overlay selects process, uses measured performance, reorders fields and ke
   const preferences = await page.evaluate(() => JSON.parse(localStorage.getItem('geronimo.preferences.v1')));
   expect(preferences.overlay.metrics.slice(0, 4)).toEqual(['cpu', 'gpu', 'fps', 'ram']);
   expect(preferences.overlay.metrics).toContain('sensor:/memory/dimm/1/temperature/0');
+});
+
+test('background preferences persist and the background button reaches the native host', async ({ page }) => {
+  await mockHost(page);
+  await page.evaluate(data => window.__deliverSnapshot(data), fixture());
+  await page.getByRole('button', { name: 'Preferences', exact: true }).click();
+  await expect(page.getByRole('checkbox', { name: 'Minimize to tray', exact: true })).toBeChecked();
+  await expect(page.getByRole('checkbox', { name: 'Close to tray', exact: true })).toBeChecked();
+  await page.getByRole('checkbox', { name: 'Minimize to tray', exact: true }).uncheck();
+  await page.getByRole('checkbox', { name: 'Close to tray', exact: true }).uncheck();
+  await page.getByRole('button', { name: 'Run in background', exact: true }).click();
+  expect(await page.evaluate(() => window.__nativeMessages.some(m => m.type === 'run-in-background'))).toBe(true);
+  expect(await page.evaluate(() => window.__nativeMessages.some(m => m.type === 'preferences' && m.settings.minimizeToTray === false && m.settings.closeToTray === false))).toBe(true);
+  await page.reload();
+  await page.getByRole('button', { name: 'Preferences', exact: true }).click();
+  await expect(page.getByRole('checkbox', { name: 'Minimize to tray', exact: true })).not.toBeChecked();
+  await expect(page.getByRole('checkbox', { name: 'Close to tray', exact: true })).not.toBeChecked();
+});
+
+test('restoring background history preserves samples, missing readings, timestamps and tray pause state', async ({ page }) => {
+  await mockHost(page);
+  const data = fixture();
+  await page.evaluate(data => window.__deliverSnapshot(data), data);
+  await page.evaluate(() => window.__deliverSnapshot({ type: 'monitoring-state', paused: true }));
+  await expect(page.getByRole('button', { name: 'Resume monitoring', exact: true })).toBeVisible();
+  await page.evaluate(() => window.__deliverSnapshot({ type: 'monitoring-state', paused: false }));
+  await expect(page.getByRole('button', { name: 'Pause monitoring', exact: true })).toBeVisible();
+  const samples = [
+    { timestamp: data.timestamp - 4000, cpu: 10, gpu: 20, ram: 30 },
+    { timestamp: data.timestamp - 2000, cpu: null, gpu: 21, ram: 31 },
+    { timestamp: data.timestamp, cpu: 12, gpu: 22, ram: 32 },
+  ];
+  await page.evaluate(samples => window.__deliverSnapshot({ type: 'history-sync', samples }), samples);
+  data.timestamp += 2000;
+  await page.evaluate(data => window.__deliverSnapshot(data), data);
+  await page.getByRole('link', { name: 'History', exact: true }).click();
+  const pending = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export session CSV', exact: true }).click();
+  const download = await pending;
+  const rows = (await readFile(await download.path(), 'utf8')).split('\r\n');
+  expect(rows).toHaveLength(5);
+  expect(rows[1]).toBe(`windows-sensors,${new Date(samples[0].timestamp).toISOString()},10,20,30`);
+  expect(rows[2]).toBe(`windows-sensors,${new Date(samples[1].timestamp).toISOString()},,21,31`);
+  expect(rows[4]).toBe(`windows-sensors,${new Date(data.timestamp).toISOString()},23,38,39`);
 });

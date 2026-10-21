@@ -8,6 +8,8 @@ The Microsoft WebView2 bootstrapper runs when the runtime is missing; it needs a
 
 In Geronimo, use Restart as administrator if hardware sensors or frame capture are inaccessible. The app otherwise launches with normal user access.
 
+Minimize or click X to keep monitoring in the Windows system tray. An enabled overlay stays visible. Double-click the tray icon to reopen; right-click it for overlay controls, Pause/Resume, or Exit Geronimo. Preferences contains separate Minimize to tray and Close to tray switches. Launching the app again reopens the existing instance. Background monitoring requires an awake PC and a signed-in Windows session; automatic launch at login is not configured.
+
 Overlay Studio lets you choose a running process, select and reorder readings, customize colors, layout, opacity and size, and select individual DIMM/motherboard temperature sensors. FPS/frame time require the chosen process to present frames through a supported graphics path. Ping is ICMP round-trip time to your chosen host, not game-server or input latency.
 
 Hardware support depends on the provider, board and firmware. Missing readings remain unavailable. Geronimo cannot create a temperature sensor that the hardware does not expose. It never substitutes sensor limits, simulated data or an estimate for a measured temperature.

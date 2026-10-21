@@ -86,6 +86,16 @@ export interface NativeSnapshot {
   diagnostics?: SensorDiagnostics;
   performance?: PerformanceInfo;
 }
+export interface HistorySample { timestamp: number; cpu: number | null; gpu: number | null; ram: number | null }
+export function acceptHistory(samples: HistorySample[]): void {
+  timestamps.length = 0;
+  for (const m of ['cpu', 'gpu', 'ram'] as Metric[]) series[m] = [];
+  for (const sample of samples.slice(-1800)) {
+    if (!Number.isFinite(sample.timestamp)) continue;
+    timestamps.push(sample.timestamp);
+    for (const m of ['cpu', 'gpu', 'ram'] as Metric[]) series[m].push(Number.isFinite(sample[m]) ? sample[m] : null);
+  }
+}
 export function initializeNative(): void {
   runtime.native = true;
   for (const m of ['cpu', 'gpu', 'ram'] as Metric[]) {

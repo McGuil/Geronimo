@@ -9,6 +9,8 @@ export interface Settings {
   refresh: number;
   fahrenheit: boolean;
   reducedMotion: boolean;
+  minimizeToTray: boolean;
+  closeToTray: boolean;
   order: Metric[];
   hidden: Metric[];
   overlay: {
@@ -28,6 +30,7 @@ export const STORAGE_KEY = 'geronimo.preferences.v1';
 export const defaults = (): Settings => ({
   theme: 'graphite', accent: 'mint', density: 'comfortable', refresh: 2000,
   fahrenheit: false, reducedMotion: false,
+  minimizeToTray: true, closeToTray: true,
   order: ['cpu', 'gpu', 'ram'], hidden: [],
   overlay: { visible: false, opacity: 90, scale: 100, layout: 'stacked', metrics: ['cpu', 'gpu', 'ram'], position: null, clickThrough: false, pingHost: '1.1.1.1', color: '#90e6b5', background: '#0f1513' },
 });
@@ -40,7 +43,7 @@ export function loadSettings(): Settings {
     if (['mint', 'violet', 'blue', 'amber'].includes(value.accent)) result.accent = value.accent;
     if (['comfortable', 'compact'].includes(value.density)) result.density = value.density;
     if ([1000, 2000, 5000].includes(value.refresh)) result.refresh = value.refresh;
-    for (const key of ['fahrenheit', 'reducedMotion'] as const) if (typeof value[key] === 'boolean') result[key] = value[key];
+    for (const key of ['fahrenheit', 'reducedMotion', 'minimizeToTray', 'closeToTray'] as const) if (typeof value[key] === 'boolean') result[key] = value[key];
     if (Array.isArray(value.order) && value.order.length === 3 && new Set(value.order).size === 3 && value.order.every((m: string) => ['cpu', 'gpu', 'ram'].includes(m))) result.order = value.order;
     if (Array.isArray(value.hidden)) result.hidden = ['cpu', 'gpu', 'ram'].filter(m => value.hidden.includes(m)) as Metric[];
     if (value.overlay && typeof value.overlay === 'object') {

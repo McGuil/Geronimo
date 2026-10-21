@@ -1,7 +1,7 @@
 import './styles.css';
 import { icon } from './icons';
 import { defaults, loadSettings, persist, type Metric, type Page } from './state';
-import { advance, chartPath, hardware, processes, readings, sensors, series, timestamps, runtime, initializeNative, acceptSnapshot, windowedSeries, statistics, type NativeSnapshot } from './telemetry';
+import { advance, chartPath, hardware, processes, readings, sensors, series, timestamps, runtime, initializeNative, acceptSnapshot, acceptHistory, windowedSeries, statistics, type NativeSnapshot } from './telemetry';
 import { nativeBridge, sendNative } from './bridge';
 import { overlayFields, type OverlayMetric } from './overlay-options';
 
@@ -170,9 +170,10 @@ function updateNativeChrome(): void {
   const agent = document.querySelector('.agent-status small');
   if (agent) agent.textContent = runtime.connected ? 'Local sensors connected' : 'Connecting to sensors…';
   const pause = document.querySelector('.pause-button');
+  if (pause) pause.innerHTML = icon(paused ? 'play' : 'pause');
   pause?.setAttribute('aria-label', paused ? 'Resume monitoring' : 'Pause monitoring');
   pause?.setAttribute('title', paused ? 'Resume monitoring' : 'Pause monitoring');
-  document.querySelector('.sidebar-version span:last-child')!.textContent = 'WINDOWS APP 0.2';
+  document.querySelector('.sidebar-version span:last-child')!.textContent = 'WINDOWS APP 0.3';
   document.querySelector('#notifications p')!.textContent = 'Temperature alert rules are not configured.';
   document.querySelector('#notifications small')!.textContent = 'This release provides read-only monitoring and a desktop overlay.';
 }
@@ -193,7 +194,11 @@ function widgetControls(): string {
   return `<div class="control-block"><div class="control-label"><span>Your dashboard</span><small>Show, hide, and reorder your main widgets.</small></div><div class="widget-list">${settings.order.map((m, i) => `<div class="widget-setting"><span class="widget-setting-icon ${m}">${icon(m)}</span><span><strong>${m.toUpperCase()}</strong><small>${escape(hardware[m].short)}</small></span><div class="reorder-buttons"><button class="icon-button" data-move-widget="${m}" data-direction="-1" aria-label="Move ${m.toUpperCase()} up" ${i === 0 ? 'disabled' : ''}>${icon('up')}</button><button class="icon-button" data-move-widget="${m}" data-direction="1" aria-label="Move ${m.toUpperCase()} down" ${i === settings.order.length - 1 ? 'disabled' : ''}>${icon('down')}</button></div><input class="switch" type="checkbox" data-widget-toggle="${m}" aria-label="Show ${m.toUpperCase()} widget" ${settings.hidden.includes(m) ? '' : 'checked'}/></div>`).join('')}</div></div><div class="info-banner compact-banner">${icon('info')}<span>Hiding a widget changes your dashboard layout. All sensors remain available under Hardware.</span></div>`;
 }
 function preferenceControls(): string {
-  return `<div class="control-block"><div class="control-label"><span>Temperature unit</span><small>Used across your dashboard and overlay.</small></div><div class="segmented wide"><button data-unit="c" class="${settings.fahrenheit ? '' : 'active'}" aria-pressed="${!settings.fahrenheit}">Celsius · °C</button><button data-unit="f" class="${settings.fahrenheit ? 'active' : ''}" aria-pressed="${settings.fahrenheit}">Fahrenheit · °F</button></div></div><div class="control-block"><label class="control-label" for="refresh-rate"><span>${runtime.native ? 'Sensor refresh interval' : 'Simulation refresh interval'}</span><small>A slower refresh performs fewer updates.</small></label><select id="refresh-rate">${[1000, 2000, 5000].map(ms => `<option value="${ms}" ${settings.refresh === ms ? 'selected' : ''}>${ms / 1000} second${ms === 1000 ? '' : 's'}${ms === 2000 ? ' · balanced' : ms === 5000 ? ' · power saver' : ' · responsive'}</option>`).join('')}</select></div><div class="privacy-note">${icon('shield')}<h3>Personal by design.</h3><p>${runtime.native ? 'Your preferences and window positions stay in your Windows profile. Readings remain on your PC. Process enumeration runs only while the Processes view is open.' : 'Your preferences stay in this browser. This preview sends no monitoring data anywhere and pauses simulation when the tab is hidden.'}</p></div><button class="button full-width" data-action="reset-settings">${icon('reset')} Restore default settings</button>`;
+  return `<div class="control-block"><div class="control-label"><span>Temperature unit</span><small>Used across your dashboard and overlay.</small></div><div class="segmented wide"><button data-unit="c" class="${settings.fahrenheit ? '' : 'active'}" aria-pressed="${!settings.fahrenheit}">Celsius · °C</button><button data-unit="f" class="${settings.fahrenheit ? 'active' : ''}" aria-pressed="${settings.fahrenheit}">Fahrenheit · °F</button></div></div><div class="control-block"><label class="control-label" for="refresh-rate"><span>${runtime.native ? 'Sensor refresh interval' : 'Simulation refresh interval'}</span><small>A slower refresh performs fewer updates.</small></label><select id="refresh-rate">${[1000, 2000, 5000].map(ms => `<option value="${ms}" ${settings.refresh === ms ? 'selected' : ''}>${ms / 1000} second${ms === 1000 ? '' : 's'}${ms === 2000 ? ' · balanced' : ms === 5000 ? ' · power saver' : ' · responsive'}</option>`).join('')}</select></div>${backgroundControls()}<div class="privacy-note">${icon('shield')}<h3>Personal by design.</h3><p>${runtime.native ? 'Preferences and current-session readings stay on your PC. While the dashboard is hidden, monitoring continues and only your selected process is sampled. Network ping contacts only the host you choose.' : 'Your preferences stay in this browser. This preview sends no monitoring data anywhere and pauses simulation when the tab is hidden.'}</p></div><button class="button full-width" data-action="reset-settings">${icon('reset')} Restore default settings</button>`;
+}
+function backgroundControls(): string {
+  if (!runtime.native) return '';
+  return `<div class="control-block"><div class="control-label"><span>Background monitoring</span><small>Keep sensors and your overlay running with the dashboard hidden.</small></div><label class="switch-row"><span>Minimize to tray<small>Hide the taskbar window when minimized</small></span><input class="switch" type="checkbox" data-background-preference="minimizeToTray" aria-label="Minimize to tray" ${settings.minimizeToTray ? 'checked' : ''}/></label><label class="switch-row"><span>Close to tray<small>The × button keeps Geronimo running</small></span><input class="switch" type="checkbox" data-background-preference="closeToTray" aria-label="Close to tray" ${settings.closeToTray ? 'checked' : ''}/></label><button class="button full-width" data-action="run-in-background">${icon('monitor')} Run in background</button><p class="muted-copy">Double-click Geronimo’s icon in the Windows tray to reopen. Right-click for overlay, pause/resume, or Exit Geronimo. Monitoring runs while you are signed in and the PC is awake.</p></div>`;
 }
 function renderCustomizer(): void {
   dialog.innerHTML = `<div class="drawer-heading"><div><span class="eyebrow">MAKE IT YOURS</span><h2 id="customizer-title">Your workspace.</h2><p>A few small changes. All yours.</p></div><button class="icon-button" data-action="close-customizer" aria-label="Close customization">${icon('x')}</button></div><div class="drawer-tabs" role="tablist" aria-label="Customization section">${[['appearance', 'Appearance'], ['widgets', 'Widgets'], ['preferences', 'Preferences']].map(([key, name]) => `<button role="tab" id="tab-${key}" aria-controls="customization-content" aria-selected="${customTab === key}" tabindex="${customTab === key ? 0 : -1}" data-custom-tab="${key}" class="${customTab === key ? 'active' : ''}">${name}</button>`).join('')}</div><div class="drawer-content" id="customization-content" role="tabpanel" aria-labelledby="tab-${customTab}">${customTab === 'appearance' ? appearanceControls() : customTab === 'widgets' ? widgetControls() : preferenceControls()}</div><div class="drawer-footer">${icon('check')} Changes saved automatically on this device</div>`;
@@ -358,6 +363,7 @@ document.addEventListener('click', (e) => {
     case 'install-driver': sendNative({ type: 'install-driver' }); break;
     case 'restart-admin': sendNative({ type: 'restart-admin' }); break;
     case 'restart-app': sendNative({ type: 'restart-app' }); break;
+    case 'run-in-background': sendNative({ type: 'run-in-background' }); break;
   }
 });
 document.addEventListener('input', (e) => {
@@ -381,6 +387,7 @@ document.addEventListener('change', (e) => {
   if (target.id === 'overlay-ping-host') { settings.overlay.pingHost = target.value.trim(); save(); }
   if (target.id === 'overlay-color' || target.id === 'overlay-background') { settings.overlay[target.id === 'overlay-color' ? 'color' : 'background'] = target.value; save(); renderOverlay(); }
   if (target.dataset.preference) { settings.reducedMotion = target.checked; applyAppearance(); save(); }
+  if (target.dataset.backgroundPreference) { settings[target.dataset.backgroundPreference as 'minimizeToTray' | 'closeToTray'] = target.checked; save(); }
   if (target.id === 'refresh-rate') { settings.refresh = Number(target.value); save(); startTimer(); }
   if (target.id === 'overlay-click-through') { settings.overlay.clickThrough = target.checked; save(); }
   if (target.id === 'gpu-device-select') {
@@ -416,6 +423,13 @@ nativeBridge?.addEventListener('message', event => {
   } else if (event.data?.type === 'overlay-state') {
     settings.overlay.visible = event.data.visible === true;
     save(); if (page === 'overlay') renderMain();
+  } else if (event.data?.type === 'monitoring-state') {
+    paused = event.data.paused === true;
+    updateNativeChrome();
+  } else if (event.data?.type === 'history-sync' && Array.isArray(event.data.samples)) {
+    acceptHistory(event.data.samples);
+    if (page === 'history') renderMain();
+    updateTelemetry();
   } else if (event.data?.type === 'sensor-error') {
     toast('A sensor update failed. Retrying on the next refresh.');
   } else if (event.data?.type === 'action-result') {
