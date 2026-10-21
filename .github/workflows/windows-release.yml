@@ -1,0 +1,81 @@
+name: Build Windows application
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Validate and package Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
+      npm_config_cache: ${{ runner.temp }}/geronimo-npm-cache
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Install Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - name: Install packaging Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Install pinned .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+      - name: Install UI dependencies
+        run: npm ci
+      - name: Type check and build UI
+        run: npm run build
+      - name: Install test browser
+        run: npx playwright install chromium
+      - name: Test UI and native bridge contract
+        run: npm test
+      - name: Publish portable Windows application
+        run: dotnet publish desktop/Geronimo.Desktop/Geronimo.Desktop.csproj -c Release -r win-x64 --self-contained true -p:RestoreLockedMode=true -o artifacts/windows-win-x64
+      - name: Publish shared-runtime Windows application
+        run: dotnet publish desktop/Geronimo.Desktop/Geronimo.Desktop.csproj -c Release -r win-x64 --self-contained false -p:RestoreLockedMode=true -o artifacts/windows-win-x64-slim
+      - name: Package and verify portable ZIP
+        run: python scripts/package-windows.py
+      - name: Package and verify shared-runtime ZIP
+        run: python scripts/package-windows.py artifacts/windows-win-x64-slim
+      - name: Upload downloadable Windows packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: Geronimo-Windows-x64
+          path: |
+            artifacts/*.zip
+            artifacts/*.zip.sha256
+          if-no-files-found: error
+          compression-level: '0'
+          retention-days: '7'
+      - name: Create GitHub prerelease for a version tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >-
+          gh release create "$env:RELEASE_TAG"
+          artifacts/Geronimo-windows-win-x64.zip
+          artifacts/Geronimo-windows-win-x64.zip.sha256
+          artifacts/Geronimo-windows-win-x64-slim.zip
+          artifacts/Geronimo-windows-win-x64-slim.zip.sha256
+          --repo "$env:GITHUB_REPOSITORY"
+          --verify-tag --prerelease
+          --title "Geronimo $env:RELEASE_TAG — Windows preview"
+          --notes-file .github/release-notes.md

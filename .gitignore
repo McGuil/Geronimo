@@ -1,0 +1,9 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+artifacts/
+**/bin/
+**/obj/
+*.local
+.DS_Store
